@@ -27,7 +27,7 @@ module.exports = {
     "@typescript-eslint/unbound-method": "off", // We never use 'this' within functions anyways.
     "@typescript-eslint/no-empty-function": "off", // Empty functions are ok sometimes.
     "no-useless-return": "error",
-    // "no-console": "error"
+    "no-console": "error"
   },
   settings: {
     "import/resolver": {
