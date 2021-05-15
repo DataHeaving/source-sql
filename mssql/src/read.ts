@@ -1,6 +1,7 @@
 import * as t from "io-ts";
 import * as types from "./types";
 import * as api from "@data-heaving/source-sql";
+import * as sql from "@data-heaving/common-sql";
 import * as validation from "@data-heaving/common-validation";
 import * as common from "@data-heaving/common";
 
@@ -9,7 +10,7 @@ export const getTableColumnMetaData = async (
   tables: ReadonlyArray<common.MakeOptional<types.TableID, "tableName">>, // We assume db name, schema name, and table name have all been previously validate not to include sql injections
 ) => {
   const retVal: Array<{
-    tableMD: common.TableMetaData;
+    tableMD: sql.TableMetaData;
     originalIndex: number;
     tableID: types.TableID;
   }> = [];
@@ -47,7 +48,7 @@ export const getTableColumnMetaData = async (
         const dbTableArray = Object.values(databaseTables);
         // Fetch metadata information (primary column names) about the table
         let curIdx = 0;
-        const allColumns = await api.streamQueryResults({
+        const allColumns = await sql.streamQueryResults({
           connection,
           sqlCommand: `SELECT
     s.name,
@@ -140,7 +141,7 @@ export const getTableColumnMetaData = async (
             columns: Array<{
               name: string;
               isPrimaryKey: boolean;
-              columnType: common.ColumnTypeInfo;
+              columnType: sql.ColumnTypeInfo;
             }>;
             isCTEnabled: boolean;
             originalIndex: number;
@@ -221,14 +222,14 @@ export const readFullTable = async ({
   rowProcessor,
   onQueryEnd,
 }: types.RowProcessingOptions) => {
-  const curCTVersion = await api.getQuerySingleValue({
+  const curCTVersion = await sql.getQuerySingleValue({
     connection,
     sqlCommand: `USE [${tableID.databaseName}]; SELECT CHANGE_TRACKING_CURRENT_VERSION()`,
     onRow: (value) => validation.decodeOrThrow(t.string.decode, value),
   });
 
   const colCount = columnNames.length;
-  await api.streamQuery({
+  await sql.streamQuery({
     connection,
     sqlCommand: `SELECT * FROM [${tableID.databaseName}].[${tableID.schemaName}].[${tableID.tableName}]`,
     onRow: (row, controlFlow) => {
@@ -257,7 +258,7 @@ export const enableChangeTracking = async ({
     tableName,
   },
 }: SimpleDataReadingOptions) => {
-  await api.executeStatementNoResults({
+  await sql.executeStatementNoResults({
     connection,
     sqlCommand: `ALTER TABLE [${databaseName}].[${schemaName}].[${tableName}]
   ENABLE CHANGE_TRACKING
@@ -274,7 +275,7 @@ export const getMinValidTrackingVersion = async ({
     tableName,
   },
 }: SimpleDataReadingOptions) =>
-  (await api.getQuerySingleValue({
+  (await sql.getQuerySingleValue({
     connection,
     sqlCommand: `USE [${databaseName}]; SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID(@tableID))`,
     onRow: (val) =>
@@ -296,7 +297,7 @@ export const readTableWithChangeTracking = async ({
 }: types.RowProcessingOptions) => {
   const extraColCount = 3; // CT version, operation, transaction time
   let maxCTVersion: bigint | null = null;
-  await api.streamQuery({
+  await sql.streamQuery({
     connection,
     sqlCommand: `USE [${
       tableID.databaseName
@@ -348,4 +349,43 @@ LEFT JOIN sys.dm_tran_commit_table tc
   });
 
   return (maxCTVersion as bigint | null)?.toString() || changeTracking; // Some compiler bug makes this always null at this point
+};
+
+export interface ChangeTrackingValidityCheckingOptions {
+  connection: types.MSSQLConnection;
+  previousChangeTracking: string | undefined;
+  tableID: types.TableID;
+  isCTAlreadyEnabled: boolean;
+  dontAutoEnableChangeTracking: boolean;
+}
+
+export const checkChangeTrackingValidity = async ({
+  connection,
+  previousChangeTracking,
+  tableID,
+  isCTAlreadyEnabled,
+  dontAutoEnableChangeTracking,
+}: ChangeTrackingValidityCheckingOptions) => {
+  // See https://docs.microsoft.com/en-us/sql/relational-databases/system-functions/change-tracking-min-valid-version-transact-sql
+  let isValid = false;
+  let changeTrackingVersion: string | undefined = undefined;
+  if (isCTAlreadyEnabled && (previousChangeTracking || "").length > 0) {
+    changeTrackingVersion = await getMinValidTrackingVersion({
+      connection,
+      tableID,
+    });
+    isValid =
+      !!changeTrackingVersion &&
+      BigInt(previousChangeTracking) >= BigInt(changeTrackingVersion);
+    if (isValid) {
+      changeTrackingVersion = previousChangeTracking;
+    } else {
+      changeTrackingVersion = undefined;
+    }
+  } else if (!isCTAlreadyEnabled && !dontAutoEnableChangeTracking) {
+    await enableChangeTracking({ connection, tableID });
+    changeTrackingVersion = undefined;
+  }
+
+  return changeTrackingVersion;
 };

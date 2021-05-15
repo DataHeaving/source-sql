@@ -1,6 +1,7 @@
 import * as t from "io-ts";
-import * as sql from "mssql";
+import * as mssql from "mssql";
 import * as utils from "@data-heaving/common";
+import * as sql from "@data-heaving/common-sql";
 import * as validation from "@data-heaving/common-validation";
 import * as api from "@data-heaving/source-sql";
 
@@ -24,14 +25,14 @@ export const tableID = t.type(
 );
 export type TableID = t.TypeOf<typeof tableID>;
 
-export type MSSQLConnectionPool = api.SQLConnectionPoolAbstraction<
-  sql.ConnectionPool,
+export type MSSQLConnectionPool = sql.SQLConnectionPoolAbstraction<
+  mssql.ConnectionPool,
   MSSQLConnection
 >;
 
-export type MSSQLConnection = api.SQLConnectionAbstraction<
-  sql.Request,
-  sql.Request
+export type MSSQLConnection = sql.SQLConnectionReaderAbstraction<
+  mssql.Request,
+  mssql.Request
 >;
 
 export type RowProcessingOptions = Parameters<
@@ -50,8 +51,8 @@ export type BigInt = t.TypeOf<typeof bigInt>;
 const defaults = t.partial(
   {
     databaseName: identifier,
-    dontAutoEnableChangeTracking: t.boolean,
-    intermediateRowEventInterval: validation.intGtZero,
+    // dontAutoEnableChangeTracking: t.boolean,
+    // intermediateRowEventInterval: validation.intGtZero,
   },
   "DefaultsConfig",
 );

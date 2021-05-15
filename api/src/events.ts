@@ -1,18 +1,18 @@
 import * as utils from "@data-heaving/common";
+import * as sql from "@data-heaving/common-sql";
 
 // This is virtual interface - no instances implementing this are ever created
-export interface VirtualSourceTableEvents<TTableID, TChangeTrackingDatum> {
-  sqlExecutionStarted: string;
-  sqlExecutionEnded: string;
+export interface VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
+  extends sql.VirtualSQLEvents {
   dataTablesDiscovered: {
-    tables: ReadonlyArray<{ tableID: TTableID; tableMD: utils.TableMetaData }>;
+    tables: ReadonlyArray<{ tableID: TTableID; tableMD: sql.TableMetaData }>;
     awaitablePromises: Array<Promise<unknown>>;
   };
   tableExportStart: {
     tablesArrayIndex: number;
     tablesArrayLength: number;
     tableID: TTableID;
-    tableMD: utils.TableMetaData;
+    tableMD: sql.TableMetaData;
   };
   tableChangeTrackVersionSeen: VirtualSourceTableEvents<
     TTableID,
@@ -71,10 +71,6 @@ export const consoleLoggingEventEmitterBuilder = <
     VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
   >,
   printInvalidRowContents?: boolean,
-  printSQL?:
-    | "onlyStart"
-    | "onlyEnd"
-    | "startAndEnd" /*logCompressionCycles?: boolean*/,
 ) => {
   if (!builder) {
     builder = createEventEmitterBuilder();
@@ -126,25 +122,6 @@ export const consoleLoggingEventEmitterBuilder = <
       "error" in arg,
     ),
   );
-  // builder.addEventListener("metadataWritten", (arg) =>
-  //   logger(
-  //     `${arg.tablesMDWasDifferent ? "Written" : "Verified"} metadata to ${
-  //       arg.targetID
-  //     } ${"error" in arg ? `with an error ${arg.error}` : "successfully"}`,
-  //   ),
-  // );
-  if (printSQL) {
-    if (printSQL === "onlyStart" || printSQL === "startAndEnd") {
-      builder.addEventListener("sqlExecutionStarted", (sql) =>
-        logger(`SQL started: ${sql}`),
-      );
-    }
-    if (printSQL === "onlyEnd" || printSQL === "startAndEnd") {
-      builder.addEventListener("sqlExecutionEnded", (sql) =>
-        logger(`SQL ended: ${sql}`),
-      );
-    }
-  }
 
   return builder;
 };
