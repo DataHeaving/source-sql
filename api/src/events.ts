@@ -2,15 +2,14 @@ import * as utils from "@data-heaving/common";
 import * as sql from "@data-heaving/common-sql";
 
 // This is virtual interface - no instances implementing this are ever created
+export interface VirtualMetaDataTableEvents<TTableID> {
+  tablesDiscovered: {
+    tables: ReadonlyArray<{ tableID: TTableID; tableMD: sql.TableMetaData }>;
+  };
+}
 export interface VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
   extends sql.VirtualSQLEvents {
-  dataTablesDiscovered: {
-    tables: ReadonlyArray<{ tableID: TTableID; tableMD: sql.TableMetaData }>;
-    awaitablePromises: Array<Promise<unknown>>;
-  };
   tableExportStart: {
-    tablesArrayIndex: number;
-    tablesArrayLength: number;
     tableID: TTableID;
     tableMD: sql.TableMetaData;
   };
@@ -56,10 +55,33 @@ export type SourceTableEventEmitter<
   VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
 >;
 
+export const createMetaDataEventEmitterBuilder = <TTableID>() =>
+  new utils.EventEmitterBuilder<VirtualMetaDataTableEvents<TTableID>>();
+
 export const createEventEmitterBuilder = <TTableID, TChangeTrackingDatum>() =>
   new utils.EventEmitterBuilder<
     VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
   >();
+
+export const consoleLoggingMetaDataEventEmitterBuilder = <TTableID>(
+  getTableIDString: (tableID: TTableID) => string,
+  logMessagePrefix?: Parameters<typeof utils.createConsoleLogger>[0],
+  builder?: utils.EventEmitterBuilder<VirtualMetaDataTableEvents<TTableID>>,
+) => {
+  if (!builder) {
+    builder = createMetaDataEventEmitterBuilder();
+  }
+
+  const logger = utils.createConsoleLogger(logMessagePrefix);
+
+  builder.addEventListener("tablesDiscovered", (arg) =>
+    logger(
+      `Discovered tables ${arg.tables
+        .map(({ tableID }) => getTableIDString(tableID))
+        .join(", ")}.`,
+    ),
+  );
+};
 
 export const consoleLoggingEventEmitterBuilder = <
   TTableID,

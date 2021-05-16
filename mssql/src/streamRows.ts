@@ -11,18 +11,29 @@ export interface TableReadContext {
   tableID: types.TableID;
   tableProcessingStartTime: Date;
 }
+
+export interface MetadataReadContext {
+  tableID: types.TableID;
+  tableMD: sql.TableMetaData;
+}
+
+export type TableChangeTrackingReadContext = MetadataReadContext &
+  TableReadContext & {
+    allColumns: ReadonlyArray<string>;
+  };
+
 // type TableReadArg = sql.DatumProcessorFactoryArg<types.TableID>;
 
 export function tableMetaDataInServer(
   connectionPool: types.MSSQLConnectionPool,
   eventEmitter: sql.SQLEventEmitter,
-  config: TableReadConfig,
 ): common.TPipelineFactory<
-  void,
-  { tableID: types.TableID; tableMD: sql.TableMetaData }
+  TableReadConfig,
+  ReadonlyArray<MetadataReadContext>,
+  MetadataReadContext
 > {
   return (datumStoringFactory) => {
-    return async () => {
+    return async (config) => {
       const storing = datumStoringFactory();
       await sql.useConnectionPoolAsync(
         connectionPool,
@@ -30,16 +41,17 @@ export function tableMetaDataInServer(
         async (connection) => {
           // The query for table information returns 1 row per column, however our datum is single table info
           // So just buffer everything to memory (we assume server's won't hold gigabytes worth of *metadata*), and 'stream' later
-          const allTables = [
-            ...(await getExplicitTables(config, connection)),
-            ...(await getTablesOfSchemas(config, connection)),
-          ];
+          const allTables = common.deduplicate(
+            [
+              ...(await getExplicitTables(config, connection)),
+              ...(await getTablesOfSchemas(config, connection)),
+            ],
+            ({ tableID }) => types.getFullTableName(tableID),
+          );
           await common.runPipelineWithBufferedData(
-            undefined,
+            allTables,
             storing,
-            common.deduplicate(allTables, ({ tableID }) =>
-              types.getFullTableName(tableID),
-            ),
+            allTables,
             1, // TODO for now, hard-coded concurrency of level 1
           );
         },
@@ -52,56 +64,60 @@ export function rowsInTable(
   connectionPool: types.MSSQLConnectionPool,
 ): RowsInTableBuilder {
   return {
-    fullLoad: (eventEmitter, table) => {
-      table = validation.decodeOrThrow(types.tableID.decode, table); // Verify that db/schema/table names don't contain forbidden characters etc.
+    fullLoad: (eventEmitter) => {
+      // table = validation.decodeOrThrow(types.tableID.decode, table); // Verify that db/schema/table names don't contain forbidden characters etc.
       return api.createRowIteratingPipelineFactory(
+        (tableID) => ({
+          tableID,
+          tableProcessingStartTime: new Date(),
+        }),
         connectionPool,
         eventEmitter,
-        (tableProcessingStartTime) => ({
-          tableID: table,
-          tableProcessingStartTime,
-        }),
-        (connection, getCurrentStoring, endOrReset) =>
-          sql.streamQuery({
-            connection: connection,
-            sqlCommand: `SELECT * FROM ${types.getFullTableName(table)}`,
+        async (tableInfo, connection, getCurrentStoring, endOrReset) => {
+          validation.decodeOrThrow(types.tableID.decode, tableInfo.tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
+          return await sql.streamQuery({
+            connection,
+            sqlCommand: `SELECT * FROM ${types.getFullTableName(
+              tableInfo.tableID,
+            )}`,
             onRow: (row, controlFlow) => {
               getCurrentStoring().processor(row, controlFlow);
             },
             onDone: endOrReset,
-          }),
+          });
+        },
         () => Promise.resolve(undefined),
       );
     },
     incrementalLoadWithSQLServerChangeTracking: (
       eventEmitter,
-      table,
-      changeTrackingStorage,
-      dontAutoEnableChangeTracking,
-      intermediateRowEventInterval,
+      getBehaviourInfo,
     ) => {
-      validation.decodeOrThrow(types.tableID.decode, table.tableID);
-      const { tableID, tableMD } = table;
       return api.createRowIteratingPipelineFactory(
-        connectionPool,
-        eventEmitter,
-        (tableProcessingStartTime) => ({
-          tableID,
-          tableMD,
-          tableProcessingStartTime,
-          allColumns: tableMD.columnNames.concat([
+        (input) => ({
+          ...input,
+          tableProcessingStartTime: new Date(),
+          allColumns: input.tableMD.columnNames.concat([
             "__PROCESSED_AT",
             "__CHANGED_AT",
             "__DELETED_AT",
           ]),
         }),
-        async (connection, getCurrentStoring, endOrReset) => {
+        connectionPool,
+        eventEmitter,
+        async (context, connection, getCurrentStoring, endOrReset) => {
+          const { tableID, tableMD } = context;
+          validation.decodeOrThrow(types.tableID.decode, tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
           const eventArgBase = {
-            tablesArrayIndex: 0,
-            tablesArrayLength: 0,
             tableID: common.deepCopy(tableID),
             tableMD: common.deepCopy(tableMD),
           };
+
+          const {
+            changeTrackingStorage,
+            dontAutoEnableChangeTracking,
+            intermediateRowEventInterval,
+          } = getBehaviourInfo(context);
 
           const ctInfo = await api.prepareChangeTracking(
             {
@@ -110,7 +126,7 @@ export function rowsInTable(
               checkValidity: async (opts) =>
                 read.checkChangeTrackingValidity({
                   ...opts,
-                  tableID: table.tableID,
+                  tableID,
                   isCTAlreadyEnabled: tableMD.isCTEnabled,
                   dontAutoEnableChangeTracking,
                 }),
@@ -204,7 +220,7 @@ export function rowsInTable(
             });
           }
         },
-        async ({ ctInfo, seenCTVersion, eventArg }) => {
+        async (_, { ctInfo, seenCTVersion, eventArg }) => {
           // After successful run, and after connection has been closed, remember to upload change tracking information
           if (
             ctInfo &&
@@ -229,19 +245,19 @@ export function rowsInTable(
 export interface RowsInTableBuilder {
   fullLoad: (
     eventEmitter: sql.SQLEventEmitter,
-    table: types.TableID,
-  ) => common.TPipelineFactory<TableReadContext, sql.TSQLRow>;
+  ) => common.TPipelineFactory<types.TableID, TableReadContext, sql.TSQLRow>;
   incrementalLoadWithSQLServerChangeTracking: (
     eventEmitter: api.SourceTableEventEmitter<types.TableID, string>,
-    table: { tableID: types.TableID; tableMD: sql.TableMetaData },
-    changeTrackingStorage: common.ObjectStorageFunctionality<string>,
-    dontAutoEnableChangeTracking: boolean,
-    intermediateRowEventInterval: number,
-  ) => common.TPipelineFactory<
-    TableReadContext & {
-      tableMD: sql.TableMetaData;
-      allColumns: ReadonlyArray<string>;
+    getBehaviourInfo: (
+      context: TableChangeTrackingReadContext,
+    ) => {
+      changeTrackingStorage: common.ObjectStorageFunctionality<string>;
+      dontAutoEnableChangeTracking: boolean;
+      intermediateRowEventInterval: number;
     },
+  ) => common.TPipelineFactory<
+    MetadataReadContext,
+    TableChangeTrackingReadContext,
     sql.TSQLRow
   >;
 }

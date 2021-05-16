@@ -4,6 +4,7 @@ import * as sql from "@data-heaving/common-sql";
 import * as t from "io-ts";
 
 export function createRowIteratingPipelineFactory<
+  TInput,
   TContext,
   TPool,
   TIntermediateRequest,
@@ -11,16 +12,14 @@ export function createRowIteratingPipelineFactory<
   TReturnValue
   // TPreparationValue
 >(
+  getContext: (input: TInput) => TContext,
   connectionPool: sql.SQLConnectionPoolAbstraction<
     TPool,
     sql.SQLConnectionReaderAbstraction<TIntermediateRequest, TFinalRequest>
   >,
   eventEmitter: sql.SQLEventEmitter,
-  contextFactory: (
-    connectionEstablishmentTime: Date,
-    // preparationResult: TPreparationValue,
-  ) => TContext,
   useConnection: (
+    context: TContext,
     connection: sql.SQLConnectionReaderAbstraction<
       TIntermediateRequest,
       TFinalRequest
@@ -31,16 +30,18 @@ export function createRowIteratingPipelineFactory<
   ) => Promise<TReturnValue>,
   // prepare: () => Promise<TPreparationValue>,
   afterSuccessfulRun?: (
+    context: TContext,
     // preparationResult: TPreparationValue,
     retVal: TReturnValue,
   ) => Promise<unknown>,
-): common.TPipelineFactory<TContext, sql.TSQLRow> {
+): common.TPipelineFactory<TInput, TContext, sql.TSQLRow> {
   return (datumStoringFactory) => {
-    return async () => {
+    return async (input) => {
       const createStoring = datumStoringFactory();
       const allPromises: Array<Promise<unknown>> = [];
       const errors: Array<unknown> = [];
       let retVal: TReturnValue | undefined = undefined;
+      const context = getContext(input);
       // const preparationValue = await prepare();
       try {
         let storing: common.DatumStoring<sql.TSQLRow> | undefined = undefined;
@@ -52,14 +53,10 @@ export function createRowIteratingPipelineFactory<
           connectionPool,
           eventEmitter,
           async (connection) => {
-            const connectionEstablishmentTime = new Date();
             const getCurrentStoring = () => {
               if (!storing) {
                 let promise: Promise<unknown> | undefined = undefined;
-                ({ storing, promise } = createStoring(
-                  contextFactory(connectionEstablishmentTime),
-                  resetSignal,
-                ));
+                ({ storing, promise } = createStoring(context, resetSignal));
                 if (promise) {
                   allPromises.push(promise);
                 }
@@ -67,6 +64,7 @@ export function createRowIteratingPipelineFactory<
               return storing;
             };
             return await useConnection(
+              context,
               connection,
               getCurrentStoring,
               resetSignal,
@@ -88,7 +86,7 @@ export function createRowIteratingPipelineFactory<
       }
 
       if (afterSuccessfulRun) {
-        await afterSuccessfulRun(retVal!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
+        await afterSuccessfulRun(context, retVal!); // eslint-disable-line @typescript-eslint/no-non-null-assertion
       }
     };
   };
