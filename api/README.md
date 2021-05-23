@@ -7,4 +7,4 @@ The exported entities include:
 Include `@data-heaving/source-sql` dependency in your `package.json` file.
 
 # More information
-To learn more what Data Heaving project is all about, see here.
+To learn more what Data Heaving project is all about, [see here](https://github.com/DataHeaving/orchestration).

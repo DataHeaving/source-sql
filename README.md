@@ -8,4 +8,4 @@ There are multiple packages in the repository, all of which are related to SQL d
 All packages of Data Heaving project are published as NPM packages to public NPM repository under `@data-heaving` organization.
 
 # More information
-To learn more what Data Heaving project is all about, see here.
+To learn more what Data Heaving project is all about, [see here](https://github.com/DataHeaving/orchestration).
