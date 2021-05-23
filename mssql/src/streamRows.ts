@@ -5,20 +5,32 @@ import * as api from "@data-heaving/source-sql";
 import * as types from "./types";
 import * as read from "./read";
 import { isDeepStrictEqual } from "util";
+import * as t from "io-ts";
 
 type TableReadConfig = Omit<types.MainConfig, "connection">;
-export interface TableReadContext {
+
+export interface TableInput {
+  tableID: types.TableID;
+}
+export interface TableReadContext<TInput extends TableInput = TableInput> {
   tableID: types.TableID;
   tableProcessingStartTime: Date;
+  input: TInput;
 }
 
-export interface MetadataReadContext {
-  tableID: types.TableID;
+// export interface TableReadContextWithMDFromQuery {
+//   tableMD: read.MSSQLRecordSet;
+// }
+
+export type TableAndMetadata = TableInput & {
   tableMD: sql.TableMetaData;
-}
+};
 
-export type TableChangeTrackingReadContext = MetadataReadContext &
-  TableReadContext & {
+export type TableChangeTrackingReadContext<
+  TInput extends TableAndMetadata = TableAndMetadata
+> = TableReadContext<TInput> &
+  TableAndMetadata & {
+    input: TInput;
     allColumns: ReadonlyArray<string>;
   };
 
@@ -29,8 +41,8 @@ export function tableMetaDataInServer(
   eventEmitter: sql.SQLEventEmitter,
 ): common.TPipelineFactory<
   TableReadConfig,
-  ReadonlyArray<MetadataReadContext>,
-  MetadataReadContext
+  ReadonlyArray<TableAndMetadata>,
+  TableAndMetadata
 > {
   return (datumStoringFactory) => {
     return async (config) => {
@@ -64,43 +76,200 @@ export function rowsInTable(
   connectionPool: types.MSSQLConnectionPool,
 ): RowsInTableBuilder {
   return {
-    fullLoad: (eventEmitter) => {
+    fullLoad: (eventEmitter, getBehaviourInfo) => {
       // table = validation.decodeOrThrow(types.tableID.decode, table); // Verify that db/schema/table names don't contain forbidden characters etc.
       return api.createRowIteratingPipelineFactory(
-        (tableID) => ({
-          tableID,
+        (tableInput) => ({
+          input: tableInput,
+          tableID: tableInput.tableID,
           tableProcessingStartTime: new Date(),
         }),
         connectionPool,
         eventEmitter,
-        async (tableInfo, connection, getCurrentStoring, endOrReset) => {
-          validation.decodeOrThrow(types.tableID.decode, tableInfo.tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
-          return await sql.streamQuery({
-            connection,
-            sqlCommand: `SELECT * FROM ${types.getFullTableName(
-              tableInfo.tableID,
-            )}`,
-            onRow: (row, controlFlow) => {
-              getCurrentStoring().processor(row, controlFlow);
-            },
-            onDone: endOrReset,
-          });
+        async (context, connection, getCurrentStoring, endOrReset) => {
+          validation.decodeOrThrow(types.tableID.decode, context.tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
+          const eventArgBase = createEventArgBase(context);
+          const { intermediateRowEventInterval } =
+            typeof getBehaviourInfo === "object"
+              ? getBehaviourInfo
+              : getBehaviourInfo(context);
+          eventEmitter.emit("tableExportStart", eventArgBase);
+          let error: unknown = undefined;
+          let sqlRowsProcessedTotal = 0;
+          try {
+            return await sql.streamQuery({
+              connection,
+              sqlCommand: `SELECT * FROM ${types.getFullTableName(
+                context.tableID,
+              )}`,
+              onRow: (row, controlFlow) => {
+                sqlRowsProcessedTotal = api.processRowForEventEmitter(
+                  eventEmitter,
+                  eventArgBase,
+                  intermediateRowEventInterval,
+                  sqlRowsProcessedTotal,
+                );
+                getCurrentStoring().processor(row, controlFlow);
+              },
+              onDone: endOrReset,
+            });
+          } catch (e) {
+            error = e;
+            throw e;
+          } finally {
+            eventEmitter.emit("tableExportEnd", {
+              ...eventArgBase,
+              sqlRowsProcessedTotal,
+              durationInMs:
+                new Date().valueOf() -
+                context.tableProcessingStartTime.valueOf(),
+              errors: error ? [error] : [],
+            });
+          }
         },
         () => Promise.resolve(undefined),
+      );
+    },
+    incrementalLoadWithChangeTrackingColumn: (
+      eventEmitter,
+      getBehaviourInfo,
+    ) => {
+      return api.createRowIteratingPipelineFactory(
+        (tableInput) => ({
+          input: tableInput,
+          tableID: tableInput.tableID,
+          tableProcessingStartTime: new Date(),
+        }),
+        connectionPool,
+        eventEmitter,
+        async (context, connection, getCurrentStoring, endOrReset) => {
+          validation.decodeOrThrow(types.tableID.decode, context.tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
+          const eventArgBase = createEventArgBase(context);
+          const {
+            changedAtColumnName,
+            changeTrackingStorage,
+            changeTrackingValidation,
+            intermediateRowEventInterval,
+            prepareChangeTrackingForSerialization,
+          } = getBehaviourInfo(context);
+          validation.decodeOrThrow(
+            types.identifier.decode,
+            changedAtColumnName,
+          ); // Verify that column name doesn't contain forbidden characters etc.
+          const ctInfo = await api.prepareChangeTracking<
+            t.TypeOf<typeof changeTrackingValidation>
+          >({
+            validation: changeTrackingValidation,
+            storage: changeTrackingStorage,
+          });
+          const eventArg = {
+            ...eventArgBase,
+            changeTrackingVersion: undefined,
+            previousChangeTrackingVersion: ctInfo.previousChangeTrackingVersion,
+          };
+          eventEmitter.emit("tableChangeTrackVersionSeen", eventArg);
+
+          let maxChangedAt: unknown | undefined = undefined;
+          eventEmitter.emit("tableExportStart", eventArgBase);
+          let error: unknown = undefined;
+          let sqlRowsProcessedTotal = 0;
+          try {
+            await read.streamQueryWithRowMD({
+              connection,
+              sqlCommand: `SELECT * FROM ${types.getFullTableName(
+                context.tableID,
+              )}${
+                ctInfo?.previousChangeTrackingVersion !== undefined
+                  ? ` WHERE [${changedAtColumnName}] > '${ctInfo.previousChangeTrackingVersion}'`
+                  : ""
+              }`,
+              onRowMD: (tableMD) =>
+                tableMD.findIndex((md) => md.name === changedAtColumnName),
+              onRow: (row, controlFlow, changedAtColumnIndex: number) => {
+                const currentChangedAt = row[changedAtColumnIndex];
+                if (
+                  !maxChangedAt ||
+                  (currentChangedAt as any) > (maxChangedAt as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+                ) {
+                  maxChangedAt = currentChangedAt;
+                }
+                sqlRowsProcessedTotal = api.processRowForEventEmitter(
+                  eventEmitter,
+                  eventArgBase,
+                  intermediateRowEventInterval,
+                  sqlRowsProcessedTotal,
+                );
+                getCurrentStoring().processor(row, controlFlow);
+              },
+              onDone: endOrReset,
+            });
+          } catch (e) {
+            error = e;
+            throw e;
+          } finally {
+            eventEmitter.emit("tableExportEnd", {
+              ...eventArgBase,
+              sqlRowsProcessedTotal,
+              durationInMs:
+                new Date().valueOf() -
+                context.tableProcessingStartTime.valueOf(),
+              errors: error ? [error] : [],
+            });
+          }
+
+          return {
+            eventArg,
+            ctInfo,
+            maxChangedAt,
+            prepareChangeTrackingForSerialization,
+          };
+        },
+        async (
+          _,
+          {
+            eventArg,
+            ctInfo,
+            maxChangedAt,
+            prepareChangeTrackingForSerialization,
+          },
+        ) => {
+          // After successful run, and after connection has been closed, remember to upload change tracking information
+          if (prepareChangeTrackingForSerialization) {
+            maxChangedAt = prepareChangeTrackingForSerialization(maxChangedAt); // e.g. create ISO formatted timestamp from Date object.
+          }
+          if (
+            ctInfo.changeTrackingFunctionality.validation.is(maxChangedAt) &&
+            !isDeepStrictEqual(
+              maxChangedAt,
+              ctInfo?.previousChangeTrackingVersion,
+            )
+          ) {
+            await ctInfo.ctStorage.writeNewDataWhenDifferent(maxChangedAt);
+            eventEmitter.emit("changeTrackingVersionUploaded", {
+              ...eventArg,
+              changeTrackingVersion: maxChangedAt,
+            });
+          }
+        },
       );
     },
     incrementalLoadWithSQLServerChangeTracking: (
       eventEmitter,
       getBehaviourInfo,
+      processedAtColumnName = DEFAULT_PROCESSED_AT_COLUMN_NAME,
+      changedAtColumnName = DEFAULT_CHANGED_AT_COLUMN_NAME,
+      deletedAtColumnName = DEFAULT_DELETED_AT_COLUMN_NAME,
     ) => {
       return api.createRowIteratingPipelineFactory(
-        (input) => ({
-          ...input,
+        (tableInput) => ({
+          input: tableInput,
+          tableID: tableInput.tableID,
+          tableMD: tableInput.tableMD,
           tableProcessingStartTime: new Date(),
-          allColumns: input.tableMD.columnNames.concat([
-            "__PROCESSED_AT",
-            "__CHANGED_AT",
-            "__DELETED_AT",
+          allColumns: tableInput.tableMD.columnNames.concat([
+            processedAtColumnName,
+            changedAtColumnName,
+            deletedAtColumnName,
           ]),
         }),
         connectionPool,
@@ -108,10 +277,7 @@ export function rowsInTable(
         async (context, connection, getCurrentStoring, endOrReset) => {
           const { tableID, tableMD } = context;
           validation.decodeOrThrow(types.tableID.decode, tableID); // Verify that db/schema/table names don't contain forbidden characters etc.
-          const eventArgBase = {
-            tableID: common.deepCopy(tableID),
-            tableMD: common.deepCopy(tableMD),
-          };
+          const eventArgBase = createEventArgBaseForChangeTracking(context);
 
           const {
             changeTrackingStorage,
@@ -119,29 +285,26 @@ export function rowsInTable(
             intermediateRowEventInterval,
           } = getBehaviourInfo(context);
 
-          const ctInfo = await api.prepareChangeTracking(
-            {
-              validation: validation.nonEmptyString,
-              storage: changeTrackingStorage,
-              checkValidity: async (opts) =>
-                read.checkChangeTrackingValidity({
-                  ...opts,
-                  tableID,
-                  isCTAlreadyEnabled: tableMD.isCTEnabled,
-                  dontAutoEnableChangeTracking,
-                }),
-            },
+          const ctInfo = await api.prepareChangeTracking({
+            validation: validation.nonEmptyString,
+            storage: changeTrackingStorage,
+          });
+
+          const changeTrackingVersion = await read.checkChangeTrackingValidity({
             connection,
-          );
+            previousChangeTracking: ctInfo.previousChangeTrackingVersion,
+            tableID,
+            isCTAlreadyEnabled: tableMD.isCTEnabled,
+            dontAutoEnableChangeTracking,
+          });
 
           const eventArg = {
             ...eventArgBase,
-            changeTrackingVersion: ctInfo?.changeTrackingVersion,
-            previousChangeTrackingVersion:
-              ctInfo?.previousChangeTrackingVersion,
+            changeTrackingVersion,
+            previousChangeTrackingVersion: ctInfo.previousChangeTrackingVersion,
           };
           eventEmitter?.emit("tableChangeTrackVersionSeen", eventArg);
-          const { changeTrackingVersion } = ctInfo;
+          // const { changeTrackingVersion } = ctInfo;
           const { columnNames } = tableMD;
           const outputArray = Array<unknown>(columnNames.length + 3); // Extra 3 cols for last modify + deletion times + this time
           const [thisTimeIndex, lastModifiedIndex, deletedIndex] = [
@@ -149,10 +312,10 @@ export function rowsInTable(
             columnNames.length + 1,
             columnNames.length + 2,
           ]; // in outputArray
-          const thisOperationStartTimeObject = new Date();
-          const thisOperationStartTime = common.dateToISOUTCString(
-            thisOperationStartTimeObject,
-          );
+          const thisOperationStartTime = context.tableProcessingStartTime;
+          // const thisOperationStartTime = common.dateToISOUTCString(
+          //   thisOperationStartTimeObject,
+          // );
           let sqlRowsProcessedTotal = 0;
           eventEmitter?.emit("tableExportStart", {
             ...eventArgBase,
@@ -177,17 +340,12 @@ export function rowsInTable(
                   outputArray[lastModifiedIndex] = thisLastModified;
                   outputArray[deletedIndex] =
                     rowStatus === "deleted" ? thisLastModified : null; // Set deletion time if needed
-                  ++sqlRowsProcessedTotal;
-
-                  if (
-                    intermediateRowEventInterval > 0 &&
-                    sqlRowsProcessedTotal % intermediateRowEventInterval === 0
-                  ) {
-                    eventEmitter?.emit("tableExportProgress", {
-                      ...eventArg,
-                      currentSqlRowIndex: sqlRowsProcessedTotal,
-                    });
-                  }
+                  sqlRowsProcessedTotal = api.processRowForEventEmitter(
+                    eventEmitter,
+                    eventArgBase,
+                    intermediateRowEventInterval,
+                    sqlRowsProcessedTotal,
+                  );
                 } else {
                   eventEmitter?.emit("invalidRowSeen", {
                     ...eventArg,
@@ -212,10 +370,10 @@ export function rowsInTable(
             throw e;
           } finally {
             eventEmitter?.emit("tableExportEnd", {
-              ...eventArg,
+              ...eventArgBase,
               sqlRowsProcessedTotal,
               durationInMs:
-                new Date().valueOf() - thisOperationStartTimeObject.valueOf(),
+                new Date().valueOf() - thisOperationStartTime.valueOf(),
               errors: error ? [error] : [],
             });
           }
@@ -223,7 +381,6 @@ export function rowsInTable(
         async (_, { ctInfo, seenCTVersion, eventArg }) => {
           // After successful run, and after connection has been closed, remember to upload change tracking information
           if (
-            ctInfo &&
             ctInfo.changeTrackingFunctionality.validation.is(seenCTVersion) &&
             !isDeepStrictEqual(
               seenCTVersion,
@@ -243,24 +400,67 @@ export function rowsInTable(
 }
 
 export interface RowsInTableBuilder {
-  fullLoad: (
-    eventEmitter: sql.SQLEventEmitter,
-  ) => common.TPipelineFactory<types.TableID, TableReadContext, sql.TSQLRow>;
-  incrementalLoadWithSQLServerChangeTracking: (
-    eventEmitter: api.SourceTableEventEmitter<types.TableID, string>,
+  fullLoad: <TInput extends TableInput = TableInput>(
+    eventEmitter: api.TableExportEventEmitter<
+      TableReadContext<TInput>,
+      types.TableID
+    >,
+    getBehaviourInfo: common.ItemOrFactory<
+      { intermediateRowEventInterval: number },
+      [TableReadContext<TInput>]
+    >,
+  ) => common.TPipelineFactory<TInput, TableReadContext<TInput>, sql.TSQLRow>;
+  incrementalLoadWithChangeTrackingColumn: <
+    TValidation extends t.Mixed,
+    TInput extends TableInput = TableInput
+  >(
+    eventEmitter: api.TableExportWithChangeTrackingEventEmitter<
+      TableReadContext<TInput>,
+      types.TableID,
+      t.TypeOf<TValidation>
+    >,
     getBehaviourInfo: (
-      context: TableChangeTrackingReadContext,
+      context: TableReadContext<TInput>,
+    ) => {
+      changedAtColumnName: string;
+      changeTrackingStorage: common.ObjectStorageFunctionality<
+        t.TypeOf<TValidation>
+      >;
+      changeTrackingValidation: TValidation;
+      prepareChangeTrackingForSerialization:
+        | ((changeTracking: unknown) => t.TypeOf<TValidation>)
+        | undefined;
+      intermediateRowEventInterval: number;
+    },
+  ) => common.TPipelineFactory<TInput, TableReadContext<TInput>, sql.TSQLRow>;
+  incrementalLoadWithSQLServerChangeTracking: <
+    TInput extends TableAndMetadata = TableAndMetadata
+  >(
+    eventEmitter: api.TableExportWithChangeTrackingEventEmitter<
+      TableChangeTrackingReadContext<TInput>,
+      types.TableID,
+      string
+    >,
+    getBehaviourInfo: (
+      context: TableChangeTrackingReadContext<TInput>,
     ) => {
       changeTrackingStorage: common.ObjectStorageFunctionality<string>;
       dontAutoEnableChangeTracking: boolean;
       intermediateRowEventInterval: number;
     },
+    processedAtColumnName?: string,
+    changedAtColumnName?: string,
+    deletedAtColumnName?: string,
   ) => common.TPipelineFactory<
-    MetadataReadContext,
-    TableChangeTrackingReadContext,
+    TInput,
+    TableChangeTrackingReadContext<TInput>,
     sql.TSQLRow
   >;
 }
+
+export const DEFAULT_PROCESSED_AT_COLUMN_NAME = "__PROCESSED_AT";
+export const DEFAULT_CHANGED_AT_COLUMN_NAME = "__CHANGED_AT";
+export const DEFAULT_DELETED_AT_COLUMN_NAME = "__DELETED_AT";
 
 export const getExplicitTables = async (
   { defaults, data: { tables } }: TableReadConfig,
@@ -350,4 +550,33 @@ const tryGetDatabaseName = (
     );
   }
   return databaseName;
+};
+
+const createEventArgBase = <TInput extends TableInput>(
+  context: TableReadContext<TInput>,
+) => {
+  const tableID = common.deepCopy(context.tableID);
+  return {
+    context: {
+      tableID,
+      input: context.input, // Let's not copy input as that messes up things like Date
+      tableProcessingStartTime: context.tableProcessingStartTime,
+    },
+    tableID,
+  };
+};
+const createEventArgBaseForChangeTracking = <TInput extends TableAndMetadata>(
+  context: TableChangeTrackingReadContext<TInput>,
+) => {
+  const tableID = common.deepCopy(context.tableID);
+  return {
+    context: {
+      tableID,
+      input: context.input, // Let's not copy input as that messes up things like Date
+      tableMD: common.deepCopy(context.tableMD),
+      allColumns: [...context.allColumns],
+      tableProcessingStartTime: context.tableProcessingStartTime,
+    },
+    tableID,
+  };
 };

@@ -1,66 +1,95 @@
 import * as utils from "@data-heaving/common";
 import * as sql from "@data-heaving/common-sql";
 
-// This is virtual interface - no instances implementing this are ever created
+// These are virtual interface - no instances implementing this are ever created
 export interface VirtualMetaDataTableEvents<TTableID> {
   tablesDiscovered: {
     tables: ReadonlyArray<{ tableID: TTableID; tableMD: sql.TableMetaData }>;
   };
 }
-export interface VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
+export interface VirtualTableExportEvents<TContext, TTableID>
   extends sql.VirtualSQLEvents {
   tableExportStart: {
+    context: TContext;
     tableID: TTableID;
-    tableMD: sql.TableMetaData;
   };
-  tableChangeTrackVersionSeen: VirtualSourceTableEvents<
-    TTableID,
-    TChangeTrackingDatum
+  tableExportProgress: VirtualTableExportEvents<
+    TContext,
+    TTableID
   >["tableExportStart"] & {
-    changeTrackingVersion: TChangeTrackingDatum | undefined;
-    previousChangeTrackingVersion: TChangeTrackingDatum | undefined;
-  };
-  tableExportProgress: VirtualSourceTableEvents<
-    TTableID,
-    TChangeTrackingDatum
-  >["tableChangeTrackVersionSeen"] & {
     currentSqlRowIndex: number;
   };
-  invalidRowSeen: VirtualSourceTableEvents<
-    TTableID,
-    TChangeTrackingDatum
-  >["tableExportProgress"] & {
-    row: ReadonlyArray<unknown>;
-  };
-  changeTrackingVersionUploaded: VirtualSourceTableEvents<
-    TTableID,
-    TChangeTrackingDatum
-  >["tableChangeTrackVersionSeen"] & {
-    changeTrackingVersion: TChangeTrackingDatum;
-  };
-  tableExportEnd: VirtualSourceTableEvents<
-    TTableID,
-    TChangeTrackingDatum
-  >["tableChangeTrackVersionSeen"] & {
+  tableExportEnd: VirtualTableExportEvents<
+    TContext,
+    TTableID
+  >["tableExportStart"] & {
     sqlRowsProcessedTotal: number;
     durationInMs: number;
     errors: ReadonlyArray<unknown>;
   };
 }
 
-export type SourceTableEventEmitter<
+export interface VirtualTableExportWithChangeTrackingEvents<
+  TContext,
+  TTableID,
+  TChangeTrackingDatum
+> extends VirtualTableExportEvents<TContext, TTableID> {
+  tableChangeTrackVersionSeen: VirtualTableExportEvents<
+    TContext,
+    TTableID
+  >["tableExportStart"] & {
+    changeTrackingVersion: TChangeTrackingDatum | undefined;
+    previousChangeTrackingVersion: TChangeTrackingDatum | undefined;
+  };
+  invalidRowSeen: VirtualTableExportWithChangeTrackingEvents<
+    TContext,
+    TTableID,
+    TChangeTrackingDatum
+  >["tableExportProgress"] & {
+    row: ReadonlyArray<unknown>;
+  };
+  changeTrackingVersionUploaded: VirtualTableExportWithChangeTrackingEvents<
+    TContext,
+    TTableID,
+    TChangeTrackingDatum
+  >["tableChangeTrackVersionSeen"] & {
+    changeTrackingVersion: TChangeTrackingDatum;
+  };
+}
+
+export type TableExportEventEmitter<TContext, TTableID> = utils.EventEmitter<
+  VirtualTableExportEvents<TContext, TTableID>
+>;
+
+export type TableExportWithChangeTrackingEventEmitter<
+  TContext,
   TTableID,
   TChangeTrackingDatum
 > = utils.EventEmitter<
-  VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
+  VirtualTableExportWithChangeTrackingEvents<
+    TContext,
+    TTableID,
+    TChangeTrackingDatum
+  >
 >;
 
 export const createMetaDataEventEmitterBuilder = <TTableID>() =>
   new utils.EventEmitterBuilder<VirtualMetaDataTableEvents<TTableID>>();
 
-export const createEventEmitterBuilder = <TTableID, TChangeTrackingDatum>() =>
+export const createTableExportEventEmitterBuilder = <TContext, TTableID>() =>
+  new utils.EventEmitterBuilder<VirtualTableExportEvents<TContext, TTableID>>();
+
+export const createTableExportWithChangeTrackingEventEmitterBuilder = <
+  TContext,
+  TTableID,
+  TChangeTrackingDatum
+>() =>
   new utils.EventEmitterBuilder<
-    VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
+    VirtualTableExportWithChangeTrackingEvents<
+      TContext,
+      TTableID,
+      TChangeTrackingDatum
+    >
   >();
 
 export const consoleLoggingMetaDataEventEmitterBuilder = <TTableID>(
@@ -83,19 +112,18 @@ export const consoleLoggingMetaDataEventEmitterBuilder = <TTableID>(
   );
 };
 
-export const consoleLoggingEventEmitterBuilder = <
-  TTableID,
-  TChangeTrackingDatum
+export const consoleLoggingTableExportEventEmitterBuilder = <
+  TContext,
+  TTableID
 >(
   getTableIDString: (tableID: TTableID) => string,
   logMessagePrefix?: Parameters<typeof utils.createConsoleLogger>[0],
   builder?: utils.EventEmitterBuilder<
-    VirtualSourceTableEvents<TTableID, TChangeTrackingDatum>
+    VirtualTableExportEvents<TContext, TTableID>
   >,
-  printInvalidRowContents?: boolean,
 ) => {
   if (!builder) {
-    builder = createEventEmitterBuilder();
+    builder = createTableExportEventEmitterBuilder();
   }
 
   const logger = utils.createConsoleLogger(logMessagePrefix);
@@ -103,17 +131,53 @@ export const consoleLoggingEventEmitterBuilder = <
   builder.addEventListener("tableExportStart", (arg) =>
     logger(`Starting export for ${getTableIDString(arg.tableID)}`),
   );
+  builder.addEventListener("tableExportProgress", (arg) =>
+    logger(`Processed row #${arg.currentSqlRowIndex}`),
+  );
+  builder.addEventListener("tableExportEnd", (arg) =>
+    logger(
+      `Ending export for ${getTableIDString(arg.tableID)}, total rows: ${
+        arg.sqlRowsProcessedTotal
+      }, completed ${
+        arg.errors.length > 0
+          ? `with a errors ${arg.errors.join(";")}`
+          : "successfully"
+      }.`,
+      "error" in arg,
+    ),
+  );
+
+  return builder;
+};
+
+export const consoleLoggingTableExportWithChangeTrackingEventEmitterBuilder = <
+  TContext,
+  TTableID,
+  TChangeTrackingDatum
+>(
+  getTableIDString: (tableID: TTableID) => string,
+  logMessagePrefix?: Parameters<typeof utils.createConsoleLogger>[0],
+  builder?: utils.EventEmitterBuilder<
+    VirtualTableExportWithChangeTrackingEvents<
+      TContext,
+      TTableID,
+      TChangeTrackingDatum
+    >
+  >,
+  printInvalidRowContents?: boolean,
+) => {
+  if (!builder) {
+    builder = createTableExportWithChangeTrackingEventEmitterBuilder();
+  }
+
+  const logger = utils.createConsoleLogger(logMessagePrefix);
+
   builder.addEventListener("tableChangeTrackVersionSeen", (arg) =>
     logger(
       `CT Info for ${getTableIDString(arg.tableID)}: previous CT version "${
         arg.previousChangeTrackingVersion
-      }", CT enabled ${arg.tableMD.isCTEnabled}, CT from DB "${
-        arg.changeTrackingVersion
-      }".`,
+      }", CT from DB "${arg.changeTrackingVersion}".`,
     ),
-  );
-  builder.addEventListener("tableExportProgress", (arg) =>
-    logger(`Processed row #${arg.currentSqlRowIndex}`),
   );
   builder.addEventListener("invalidRowSeen", (arg) =>
     logger(
@@ -132,18 +196,27 @@ export const consoleLoggingEventEmitterBuilder = <
         )}, change tracking version ${changeTrackingVersion} uploaded.`,
       ),
   );
-  builder.addEventListener("tableExportEnd", (arg) =>
-    logger(
-      `Ending export for ${getTableIDString(arg.tableID)}, total rows: ${
-        arg.sqlRowsProcessedTotal
-      }, completed ${
-        arg.errors.length > 0
-          ? `with a errors ${arg.errors.join(";")}`
-          : "successfully"
-      }.`,
-      "error" in arg,
-    ),
-  );
 
   return builder;
+};
+
+export const processRowForEventEmitter = <TContext, TTableID>(
+  eventEmitter: TableExportEventEmitter<TContext, TTableID>,
+  eventArgBase: VirtualTableExportEvents<
+    TContext,
+    TTableID
+  >["tableExportStart"],
+  intermediateRowEventInterval: number,
+  sqlRowsProcessedTotal: number,
+) => {
+  if (
+    intermediateRowEventInterval > 0 &&
+    sqlRowsProcessedTotal % intermediateRowEventInterval === 0
+  ) {
+    eventEmitter.emit("tableExportProgress", {
+      ...eventArgBase,
+      currentSqlRowIndex: sqlRowsProcessedTotal,
+    });
+  }
+  return ++sqlRowsProcessedTotal;
 };

@@ -16,7 +16,7 @@ export type StreamSQLRows<
   outputArray: Array<unknown>;
   rowProcessor: (
     rowStatus: RowStatus,
-    transactionTime: string | undefined | null,
+    transactionTime: Date | undefined | null,
     controlFlow: common.ControlFlow | undefined,
   ) => unknown;
   onQueryEnd: () => unknown;

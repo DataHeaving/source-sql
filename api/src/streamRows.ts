@@ -92,40 +92,23 @@ export function createRowIteratingPipelineFactory<
   };
 }
 
-export interface ChangeTrackingFunctionalityV2<
-  TConnection,
-  TChangeTrackingDatum
-> {
+export interface ChangeTrackingFunctionality<TChangeTrackingDatum> {
   validation: t.Type<TChangeTrackingDatum>;
-  checkValidity: (opts: {
-    connection: TConnection;
-    previousChangeTracking: TChangeTrackingDatum | undefined;
-  }) => Promise<TChangeTrackingDatum | undefined>;
   storage: common.ObjectStorageFunctionality<TChangeTrackingDatum>;
 }
 
-export const prepareChangeTracking = async <TConnection, TChangeTrackingDatum>(
-  changeTrackingFunctionality: ChangeTrackingFunctionalityV2<
-    TConnection,
-    TChangeTrackingDatum
-  >,
-  connection: TConnection,
+export const prepareChangeTracking = async <TChangeTrackingDatum>(
+  changeTrackingFunctionality: ChangeTrackingFunctionality<TChangeTrackingDatum>,
+  // connection: TConnection,
 ) => {
   const ctStorage = changeTrackingFunctionality.storage;
   const previousChangeTrackingVersion = await validation.retrieveValidatedDataFromStorage(
     ctStorage.readExistingData,
     changeTrackingFunctionality.validation.decode,
   );
-  const changeTrackingVersion = await changeTrackingFunctionality.checkValidity(
-    {
-      connection,
-      previousChangeTracking: previousChangeTrackingVersion,
-    },
-  );
   return {
     changeTrackingFunctionality,
     ctStorage,
     previousChangeTrackingVersion,
-    changeTrackingVersion,
   };
 };

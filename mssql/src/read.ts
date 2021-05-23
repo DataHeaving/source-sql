@@ -4,6 +4,7 @@ import * as api from "@data-heaving/source-sql";
 import * as sql from "@data-heaving/common-sql";
 import * as validation from "@data-heaving/common-validation";
 import * as common from "@data-heaving/common";
+import * as mssql from "mssql";
 
 export const getTableColumnMetaData = async (
   connection: types.MSSQLConnection,
@@ -301,7 +302,7 @@ export const readTableWithChangeTracking = async ({
     connection,
     sqlCommand: `USE [${
       tableID.databaseName
-    }]; SELECT ct.SYS_CHANGE_VERSION, ct.SYS_CHANGE_OPERATION, FORMAT(tc.COMMIT_TIME, 'yyyy-MM-ddTHH:mm:ss.fff'), ${columnNames
+    }]; SELECT ct.SYS_CHANGE_VERSION, ct.SYS_CHANGE_OPERATION, tc.COMMIT_TIME, ${columnNames
       .map((colName) => `t.[${colName}]`)
       .join(", ")}
 FROM CHANGETABLE(CHANGES [${tableID.schemaName}].[${
@@ -314,8 +315,8 @@ FROM CHANGETABLE(CHANGES [${tableID.schemaName}].[${
       .slice(0, pkCount)
       .map((pkColName) => `t.[${pkColName}] = ct.[${pkColName}]`)
       .join(" AND ")}
-LEFT JOIN sys.dm_tran_commit_table tc
-  ON ct.SYS_CHANGE_VERSION = tc.COMMIT_TS`,
+  LEFT JOIN sys.dm_tran_commit_table tc
+    ON ct.SYS_CHANGE_VERSION = tc.COMMIT_TS`,
     onRow: (row, controlFlow) => {
       let rowStatus: api.RowStatus = undefined;
       switch (row[1]) {
@@ -343,7 +344,7 @@ LEFT JOIN sys.dm_tran_commit_table tc
       if (maxCTVersion === null || curCTVersion > maxCTVersion) {
         maxCTVersion = curCTVersion;
       }
-      rowProcessor(rowStatus, row[2] as string, controlFlow);
+      rowProcessor(rowStatus, row[2] as Date, controlFlow);
     },
     onDone: onQueryEnd,
   });
@@ -388,4 +389,28 @@ export const checkChangeTrackingValidity = async ({
   }
 
   return changeTrackingVersion;
+};
+
+export type MSSQLRecordSet = ReadonlyArray<mssql.IColumnMetadata[string]>;
+
+export const streamQueryWithRowMD = async <TResult>(
+  opts: Omit<
+    sql.QueryExecutionParameters<mssql.Request, mssql.Request>,
+    "prepareRequest" | "onRow"
+  > & {
+    onRowMD: (columns: MSSQLRecordSet) => TResult;
+    onRow: (
+      ...params: [...Parameters<sql.RowTransformer<unknown>>, TResult]
+    ) => unknown;
+  },
+) => {
+  let mdResult: TResult | undefined = undefined;
+  await sql.streamQuery({
+    ...opts,
+    prepareRequest: (req) =>
+      req.on("recordset", (columns: MSSQLRecordSet) => {
+        mdResult = opts.onRowMD(columns);
+      }),
+    onRow: (row, controlFlow) => opts.onRow(row, controlFlow, mdResult!), // eslint-disable-line @typescript-eslint/no-non-null-assertion
+  });
 };
