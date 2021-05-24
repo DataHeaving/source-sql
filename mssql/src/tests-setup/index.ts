@@ -90,7 +90,14 @@ test.before("Start SQL Server Container", async (t) => {
       await prepareDatabase(sqlServerInfo);
       success = true;
     } catch (e) {
-      console.log("GOT ERROR", e, e instanceof mssql.ConnectionError); // eslint-disable-line no-console
+      // eslint-disable-next-line no-console
+      console.log(
+        "GOT ERROR",
+        e,
+        e instanceof mssql.ConnectionError,
+        e instanceof mssql.MSSQLError,
+        e instanceof Error,
+      );
       if (e instanceof mssql.ConnectionError) {
         console.log("SQL Server still in recovery state..."); // eslint-disable-line no-console
         await common.sleep(1000);
