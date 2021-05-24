@@ -8,7 +8,7 @@ on:
         required: true
 
 jobs:
-  build_common:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 14
       - id: publish
-        name: Public ${{ github.event.inputs.package }}
+        name: Publish ${{ github.event.inputs.package }}
         shell: bash
         run: |
           set -e

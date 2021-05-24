@@ -21,7 +21,7 @@
     "dev-run": "ts-node dist/cjs",
     "test": "npm run run-test && npm run remove-test-files",
     "run-test": "echo TODO TESTS",
-    "remove-test-files": "rm -rf dist/*/tests"
+    "remove-test-files": "rm -rf dist/*/tests src/*/tests"
   },
   "dependencies": {
     "@data-heaving/common-sql": "0.9.0",
