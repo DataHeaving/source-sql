@@ -25,7 +25,7 @@ test.before("Start SQL Server Container", async (t) => {
       "docker",
       [
         "run",
-        "--rm",
+        // "--rm", // Don't use --rm, as we might want to get logs out of the container
         "--detach",
         ...(isNetworkSpecified ? ["--network", vars.SQL_SERVER_DOCKER_NW] : []),
         isNetworkSpecified ? "--expose" : "--publish",
@@ -64,6 +64,9 @@ test.before("Start SQL Server Container", async (t) => {
       console.log("SQL Server is almost ready..."); // eslint-disable-line no-console
     } catch {
       console.log("Waiting for SQL Server to become ready..."); // eslint-disable-line no-console
+      if (!(await isContainerRunning(containerID))) {
+        throw new Error("MSSQL container shut down prematurely.");
+      }
       await common.sleep(1000);
       // TODO: call `docker inspect` here and give up if container is no longer running
     }
@@ -90,15 +93,13 @@ test.before("Start SQL Server Container", async (t) => {
       await prepareDatabase(sqlServerInfo);
       success = true;
     } catch (e) {
-      // eslint-disable-next-line no-console
-      console.log(
-        "GOT ERROR",
-        e,
-        e instanceof mssql.ConnectionError,
-        e instanceof mssql.MSSQLError,
-        e instanceof Error,
-      );
-      if (e instanceof mssql.ConnectionError) {
+      if (!(await isContainerRunning(containerID))) {
+        throw new Error("MSSQL container shut down prematurely.");
+      }
+      if (
+        e instanceof mssql.ConnectionError ||
+        !(e instanceof mssql.MSSQLError) // When e.g. Socket error
+      ) {
         console.log("SQL Server still in recovery state..."); // eslint-disable-line no-console
         await common.sleep(1000);
       } else {
@@ -116,6 +117,16 @@ test.after.always("Shut down SQL Server Container", async (t) => {
     console.log("Removed SQL Server container", containerID); // eslint-disable-line no-console
   }
 });
+
+const isContainerRunning = async (containerID: string) =>
+  (
+    await execFileAsync("docker", [
+      "inspect",
+      containerID,
+      "--format",
+      "{{.State.Running}}",
+    ])
+  ).stdout === "true";
 
 const getSQLServerHostName = async (containerID: string) => {
   return (
