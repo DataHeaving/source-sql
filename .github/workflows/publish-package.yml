@@ -15,8 +15,8 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: 14
-      - id: build
-        name: Build Common
+      - id: publish
+        name: Public ${{ github.event.inputs.package }}
         shell: bash
         run: |
           set -e
