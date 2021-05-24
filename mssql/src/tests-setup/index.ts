@@ -29,7 +29,9 @@ test.before("Start SQL Server Container", async (t) => {
         "--detach",
         ...(isNetworkSpecified ? ["--network", vars.SQL_SERVER_DOCKER_NW] : []),
         isNetworkSpecified ? "--expose" : "--publish",
-        sqlServerPortString,
+        isNetworkSpecified
+          ? sqlServerPortString
+          : `${sqlServerPortString}:${sqlServerPortString}`,
         ...Object.keys(sqlServerEnv).flatMap((envName) => ["--env", envName]),
         "mcr.microsoft.com/mssql/server:2019-CU10-ubuntu-20.04",
       ],
@@ -63,6 +65,7 @@ test.before("Start SQL Server Container", async (t) => {
     } catch {
       console.log("Waiting for SQL Server to become ready..."); // eslint-disable-line no-console
       await common.sleep(1000);
+      // TODO: call `docker inspect` here and give up if container is no longer running
     }
   } while (!success);
 
