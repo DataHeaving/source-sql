@@ -21,7 +21,7 @@
     "dev-run": "ts-node dist/cjs",
     "test": "npm run run-test && npm run remove-test-files",
     "run-test": "ava",
-    "remove-test-files": "rm -rf dist/*/tests dist/*/test-setup"
+    "remove-test-files": "rm -rf dist/*/tests dist/*/tests-setup"
   },
   "dependencies": {
     "@data-heaving/source-sql": "0.9.0",
@@ -52,6 +52,8 @@
     ],
     "require": [
       "./dist/cjs/tests-setup"
-    ]
+    ],
+    "timeout": "10m"
   }
 }
+

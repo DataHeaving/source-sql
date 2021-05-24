@@ -18,7 +18,7 @@ jobs:
   build_and_test:
     strategy:
       matrix:
-        dir: [ api ] # Wait for NPM release: mssql
+        dir: [ api, mssql ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -46,3 +46,5 @@ jobs:
           npm ci
           npm run build
           npm run test
+          ls -al dist/cjs
+          ls -al dist/esm
