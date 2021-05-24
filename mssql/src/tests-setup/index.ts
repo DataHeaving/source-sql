@@ -112,6 +112,9 @@ test.before("Start SQL Server Container", async (t) => {
       // Print logs (but first wait a little, as the logs are not always 'synced' if immediately queried)
       await common.sleep(2000);
       const logs = await execFileAsync("docker", ["logs", containerID]);
+      const debug = await execFileAsync("docker", ["inspect", containerID]);
+      console.log(`DEBUG1 ${debug.stdout}`); // eslint-disable-line no-console
+      console.log(`DEBUG2 ${debug.stderr}`); // eslint-disable-line no-console
       // eslint-disable-next-line no-console
       console.log(
         `MSSQL shut down unexpectedly, logs follow (${logs.stdout.length}, ${logs.stderr.length})`,
