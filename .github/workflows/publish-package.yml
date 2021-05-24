@@ -1,0 +1,45 @@
+name: CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package name"
+        required: true
+
+jobs:
+  build_common:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14
+      - id: build
+        name: Build Common
+        shell: bash
+        run: |
+          set -e
+
+          CURRENT_BRANCH="${GITHUB_REF#refs/heads/}"
+          if [[ "${CURRENT_BRANCH}" != "main" ]]; then
+            echo 'This action can only be run on main branch!' 1>&2
+            exit 1
+          fi
+
+          cd ${{ github.event.inputs.package }}
+          npm ci
+          PACKAGE_VERSION="$(cat package.json | jq -rM .version)"
+          npm install --no-save @jsdevtools/npm-publish
+          ./node_modules/.bin/npm-publish --access public --token '${{ secrets.NPM_TOKEN }}'
+
+          # TODO we must generate release notes for the package
+          # TODO set up organization-wide CICD-GitHub account
+          GIT_TAG_NAME="${{ github.event.inputs.package }}-v${PACKAGE_VERSION}"
+          git config --global user.email "cd-automation@dataheaving.project"
+          git config --global user.name "CD Automation"
+          git tag \
+            -a \
+            -m "Component ${{ github.event.inputs.package }} release ${PACKAGE_VERSION}" \
+            "${GIT_TAG_NAME}"
+          git push origin "${GIT_TAG_NAME}"
