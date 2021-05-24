@@ -40,73 +40,83 @@ test.before("Start SQL Server Container", async (t) => {
       },
     )
   ).stdout.trim(); // Remember to trim output so that trailing newline would not be included as part of container ID
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+    (t.context as any)[CONTAINER_CONTEXT_KEY] = containerID;
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-  (t.context as any)[CONTAINER_CONTEXT_KEY] = containerID;
+    console.log("Started SQL Server container with ID", containerID); // eslint-disable-line no-console
+    // Now, we must get container host name, if we had networking config specified
+    const sqlServerHost = isNetworkSpecified
+      ? await getSQLServerHostName(containerID)
+      : "127.0.0.1";
+    console.log("SQL Server host: ", sqlServerHost); // eslint-disable-line no-console
+    const socket = new Socket();
+    const sqlServerPort = Number.parseInt(vars.SQL_SERVER_DOCKER_PORT);
 
-  console.log("Started SQL Server container with ID", containerID); // eslint-disable-line no-console
-  // Now, we must get container host name, if we had networking config specified
-  const sqlServerHost = isNetworkSpecified
-    ? await getSQLServerHostName(containerID)
-    : "127.0.0.1";
-  console.log("SQL Server host: ", sqlServerHost); // eslint-disable-line no-console
-  const socket = new Socket();
-  const sqlServerPort = Number.parseInt(vars.SQL_SERVER_DOCKER_PORT);
-
-  let success = false;
-  do {
-    try {
-      await connectAsync(socket, {
-        host: sqlServerHost,
-        port: sqlServerPort,
-      });
-      success = true;
-      console.log("SQL Server is almost ready..."); // eslint-disable-line no-console
-    } catch {
-      console.log("Waiting for SQL Server to become ready..."); // eslint-disable-line no-console
-      if (!(await isContainerRunning(containerID))) {
-        throw new Error("MSSQL container shut down prematurely.");
-      }
-      await common.sleep(1000);
-      // TODO: call `docker inspect` here and give up if container is no longer running
-    }
-  } while (!success);
-
-  const sqlServerInfo: abi.SQLServerInfo = {
-    host: sqlServerHost,
-    port: sqlServerPort,
-    username: "sa", // I think this is hard-coded into SQL Server (container)
-    password: vars.SQL_SERVER_PASSWORD,
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
-  (t.context as any)[abi.CONTEXT_KEY] = sqlServerInfo;
-
-  // Prepare the DB
-  // Notice that on first time, we will typically get "Logon Login failed for user 'SA'. Reason: An error occurred while evaluating the password." into SQL Server logs.
-  // This is related to some timing issue, and just retrying again later is sufficient.
-  // There is an issue about it https://github.com/microsoft/mssql-docker/issues/55 , but this happens even on 'normal' passwords.
-  success = false;
-  do {
-    try {
-      console.log("Attempting to run preparation SQL..."); // eslint-disable-line no-console
-      await prepareDatabase(sqlServerInfo);
-      success = true;
-    } catch (e) {
-      if (!(await isContainerRunning(containerID))) {
-        throw new Error("MSSQL container shut down prematurely.");
-      }
-      if (
-        e instanceof mssql.ConnectionError ||
-        !(e instanceof mssql.MSSQLError) // When e.g. Socket error
-      ) {
-        console.log("SQL Server still in recovery state..."); // eslint-disable-line no-console
+    let success = false;
+    do {
+      try {
+        await connectAsync(socket, {
+          host: sqlServerHost,
+          port: sqlServerPort,
+        });
+        success = true;
+        console.log("SQL Server is almost ready..."); // eslint-disable-line no-console
+      } catch {
+        console.log("Waiting for SQL Server to become ready..."); // eslint-disable-line no-console
+        if (!(await isContainerRunning(containerID))) {
+          throw new MSSQLContainerShutDownError(containerID);
+        }
         await common.sleep(1000);
-      } else {
-        throw e;
+        // TODO: call `docker inspect` here and give up if container is no longer running
       }
+    } while (!success);
+
+    const sqlServerInfo: abi.SQLServerInfo = {
+      host: sqlServerHost,
+      port: sqlServerPort,
+      username: "sa", // I think this is hard-coded into SQL Server (container)
+      password: vars.SQL_SERVER_PASSWORD,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any
+    (t.context as any)[abi.CONTEXT_KEY] = sqlServerInfo;
+
+    // Prepare the DB
+    // Notice that on first time, we will typically get "Logon Login failed for user 'SA'. Reason: An error occurred while evaluating the password." into SQL Server logs.
+    // This is related to some timing issue, and just retrying again later is sufficient.
+    // There is an issue about it https://github.com/microsoft/mssql-docker/issues/55 , but this happens even on 'normal' passwords.
+    success = false;
+    do {
+      try {
+        console.log("Attempting to run preparation SQL..."); // eslint-disable-line no-console
+        await prepareDatabase(sqlServerInfo);
+        success = true;
+      } catch (e) {
+        if (!(await isContainerRunning(containerID))) {
+          throw new MSSQLContainerShutDownError(containerID);
+        }
+        if (
+          e instanceof mssql.ConnectionError ||
+          !(e instanceof mssql.MSSQLError) // When e.g. Socket error
+        ) {
+          console.log("SQL Server still in recovery state..."); // eslint-disable-line no-console
+          await common.sleep(1000);
+        } else {
+          throw e;
+        }
+      }
+    } while (!success);
+  } catch (e) {
+    if (e instanceof MSSQLContainerShutDownError) {
+      // Print logs
+      const logs = await execFileAsync("docker", ["logs", containerID]);
+      console.log("MSSQL shut down unexpectedly, logs follow"); // eslint-disable-line no-console
+      console.log(logs.stdout); // eslint-disable-line no-console
+      console.log(logs.stderr); // eslint-disable-line no-console
     }
-  } while (!success);
+    throw e;
+  }
 });
 
 test.after.always("Shut down SQL Server Container", async (t) => {
@@ -138,6 +148,12 @@ const getSQLServerHostName = async (containerID: string) => {
     ])
   ).stdout.trim();
 };
+
+class MSSQLContainerShutDownError extends Error {
+  public constructor(public readonly containerID: string) {
+    super(`MSSQL container shut down (id ${containerID}.`);
+  }
+}
 
 const connectAsync = (socket: Socket, opts: SocketConnectOpts) =>
   new Promise<void>((resolve, reject) => {
