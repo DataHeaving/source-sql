@@ -11,13 +11,17 @@
     "url": "https://github.com/DataHeaving/source-sql.git"
   },
   "scripts": {
+    "build": "npm run tsc && npm run lint",
     "tsc": "tsc --project tsconfig.json && tsc --project tsconfig.json --outDir ./dist/esm --module ES2020",
-    "prepublishOnly": "rm -rf dist && npm run tsc && npm run lint",
+    "prepublishOnly": "rm -rf dist && npm run build && npm run test",
     "lint": "eslint ./src --ext .ts,.tsx",
     "watch": "tsc -w",
     "prestart": "npm run build",
     "run": "node dist/cjs",
-    "dev-run": "ts-node dist/cjs"
+    "dev-run": "ts-node dist/cjs",
+    "test": "npm run run-test && npm run remove-test-files",
+    "run-test": "echo TODO TESTS",
+    "remove-test-files": "rm -rf dist/*/tests"
   },
   "dependencies": {
     "@data-heaving/common-sql": "0.9.0",
