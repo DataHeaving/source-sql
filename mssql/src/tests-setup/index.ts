@@ -109,7 +109,8 @@ test.before("Start SQL Server Container", async (t) => {
     } while (!success);
   } catch (e) {
     if (e instanceof MSSQLContainerShutDownError) {
-      // Print logs
+      // Print logs (but first wait a little, as the logs are not always 'synced' if immediately queried)
+      await common.sleep(2000);
       const logs = await execFileAsync("docker", ["logs", containerID]);
       // eslint-disable-next-line no-console
       console.log(
