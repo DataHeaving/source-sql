@@ -45,6 +45,9 @@ jobs:
           cd ${{ matrix.dir }}
           npm ci
           npm run build
+          if [[ '${{ matrix.dir }}' == 'mssqll' ]]; then
+            docker pull mcr.microsoft.com/mssql/server:2019-CU10-ubuntu-20.04
+          fi
           npm run test
           ls -al dist/cjs
           ls -al dist/esm

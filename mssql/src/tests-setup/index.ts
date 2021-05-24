@@ -111,7 +111,10 @@ test.before("Start SQL Server Container", async (t) => {
     if (e instanceof MSSQLContainerShutDownError) {
       // Print logs
       const logs = await execFileAsync("docker", ["logs", containerID]);
-      console.log("MSSQL shut down unexpectedly, logs follow"); // eslint-disable-line no-console
+      // eslint-disable-next-line no-console
+      console.log(
+        `MSSQL shut down unexpectedly, logs follow (${logs.stdout.length}, ${logs.stderr.length})`,
+      );
       console.log(logs.stdout); // eslint-disable-line no-console
       console.log(logs.stderr); // eslint-disable-line no-console
     }
@@ -151,7 +154,7 @@ const getSQLServerHostName = async (containerID: string) => {
 
 class MSSQLContainerShutDownError extends Error {
   public constructor(public readonly containerID: string) {
-    super(`MSSQL container shut down (id ${containerID}.`);
+    super(`MSSQL container shut down (id ${containerID}).`);
   }
 }
 
