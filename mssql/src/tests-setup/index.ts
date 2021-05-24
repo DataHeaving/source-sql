@@ -86,6 +86,7 @@ test.before("Start SQL Server Container", async (t) => {
   success = false;
   do {
     try {
+      console.log("Attempting to run preparation SQL..."); // eslint-disable-line no-console
       await prepareDatabase(sqlServerInfo);
       success = true;
     } catch (e) {
