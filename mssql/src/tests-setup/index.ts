@@ -143,7 +143,7 @@ const isContainerRunning = async (containerID: string) =>
       "--format",
       "{{.State.Running}}",
     ])
-  ).stdout === "true";
+  ).stdout.trim() === "true";
 
 const getSQLServerHostName = async (containerID: string) => {
   return (
