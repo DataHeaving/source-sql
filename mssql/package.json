@@ -52,6 +52,7 @@
     ],
     "require": [
       "./dist/cjs/tests-setup"
-    ]
+    ],
+    "timeout": "10m"
   }
 }
