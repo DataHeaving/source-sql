@@ -1,0 +1,48 @@
+# This workflow will run tests using node and then publish a package to GitHub Packages when a release is created
+# For more information see: https://help.github.com/actions/language-and-framework-guides/publishing-nodejs-packages
+
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches:
+    - develop
+    paths:
+    # Trigger only when there are changes to any code (as opposed to READMEs etc)
+    - 'api/**'
+    - 'mssql/**'
+    - '!api/README.md'
+    - '!mssql/README.md'
+
+jobs:
+  build_and_test:
+    strategy:
+      matrix:
+        dir: [ api ] # Wait for NPM release: mssql
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          ref: refs/heads/develop
+          fetch-depth: 0
+      - uses: actions/setup-node@v2
+        with:
+          node-version: 14
+      - id: build
+        name: Build ${{ matrix.dir }}
+        shell: bash
+        run: |
+          set -e
+          
+          CURRENT_BRANCH="${GITHUB_REF#refs/heads/}"
+          # Note that git merge still wants these settings even with --no-commit flag
+          git config user.email "you@example.com"
+          git config user.name "Your Name"
+          git fetch origin "${CURRENT_BRANCH}" \
+            && git branch "${CURRENT_BRANCH}" FETCH_HEAD \
+            && git merge --no-ff --no-commit --verbose "${CURRENT_BRANCH}"
+
+          cd ${{ matrix.dir }}
+          npm ci
+          npm run build
+          npm run test
