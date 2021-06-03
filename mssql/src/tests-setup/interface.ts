@@ -66,6 +66,7 @@ export function getSQLConfigFromContext(
     options: {
       encrypt: true,
       enableArithAbort: true,
+      trustServerCertificate: true,
     },
   };
 }
