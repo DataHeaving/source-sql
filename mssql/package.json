@@ -1,6 +1,6 @@
 {
   "name": "@data-heaving/source-sql-mssql",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "author": {
     "name": "Stanislav Muhametsin",
     "email": "346799+stazz@users.noreply.github.com",
@@ -53,6 +53,8 @@
     "require": [
       "./dist/cjs/tests-setup"
     ],
-    "timeout": "10m"
+    "concurrency": 1,
+    "timeout": "10m",
+    "verbose": true
   }
 }
