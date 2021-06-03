@@ -1,4 +1,4 @@
-import test from "ava";
+import test, { ExecutionContext } from "ava";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { Socket } from "net";
@@ -89,8 +89,8 @@ test.before("Start SQL Server Container", async (t) => {
     success = false;
     do {
       try {
-        console.log("Attempting to run preparation SQL..."); // eslint-disable-line no-console
-        await prepareDatabase(sqlServerInfo);
+        console.log("Attempting to actually connect to server..."); // eslint-disable-line no-console
+        await prepareServer(sqlServerInfo);
         success = true;
       } catch (e) {
         if (!(await isContainerRunning(containerID))) {
@@ -121,6 +121,12 @@ test.before("Start SQL Server Container", async (t) => {
     }
     throw e;
   }
+});
+
+test.serial.beforeEach(async (t) => {
+  await prepareDatabase(
+    (t as ExecutionContext<abi.SQLServerTestContext>).context.sqlServerInfo,
+  );
 });
 
 test.after.always("Shut down SQL Server Container", async (t) => {
@@ -169,19 +175,27 @@ const connectAsync = (socket: Socket, opts: SocketConnectOpts) =>
     socket.connect(opts);
   });
 
+const prepareServer = async (serverInfo: abi.SQLServerInfo) => {
+  const connection = await new mssql.ConnectionPool(
+    abi.getSQLConfigFromContext(serverInfo),
+  ).connect();
+  try {
+    await connection.query("SELECT 1");
+  } finally {
+    await connection.close();
+  }
+};
+
 const prepareDatabase = async (serverInfo: abi.SQLServerInfo) => {
   const connection = await new mssql.ConnectionPool(
     abi.getSQLConfigFromContext(serverInfo),
   ).connect();
   try {
-    await connection.query(`CREATE DATABASE ${abi.TABLE_ID.databaseName};`);
-    // eslint-disable-next-line no-console
-    console.log("SQL", DB_PREPARATION_SQL);
-    // eslint-disable-next-line no-console
-    console.log(
-      "SQL Server Preparation result",
-      await connection.query(DB_PREPARATION_SQL),
+    await connection.query(
+      `DROP DATABASE IF EXISTS ${abi.TABLE_ID.databaseName}`,
     );
+    await connection.query(`CREATE DATABASE ${abi.TABLE_ID.databaseName}`);
+    await connection.query(DB_PREPARATION_SQL);
   } finally {
     await connection.close();
   }

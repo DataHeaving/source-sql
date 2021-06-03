@@ -2,7 +2,7 @@ import * as common from "@data-heaving/common";
 import * as sql from "@data-heaving/common-sql";
 import * as sqlSource from "@data-heaving/source-sql";
 import * as t from "io-ts";
-import test, { ExecutionContext, Implementation, TestInterface } from "ava";
+import test, { ExecutionContext, Implementation, SerialInterface } from "ava";
 import * as mssql from "mssql";
 import * as mssqlSource from "..";
 
@@ -48,7 +48,8 @@ export const TABLE_DATA = [[0, "data0"] as const, [1, "data1"] as const];
 export const defineSQLServerTest = (
   name: string,
   implementation: Implementation<SQLServerTestContext>,
-) => (test as TestInterface<SQLServerTestContext>)(name, implementation);
+) =>
+  (test.serial as SerialInterface<SQLServerTestContext>)(name, implementation);
 
 export function getSQLConfigFromContext(
   context: SQLServerTestContext | SQLServerInfo,
@@ -312,9 +313,15 @@ export const performSQLIncrementalLoadWithNativeCTTest = (
   seenChangeTracking: string | undefined,
   dataRange?: IncrementalLoadInfo<string>,
 ) => {
-  const expectedData = dataRange
-    ? TABLE_DATA.slice(dataRange.startIndex, dataRange.elementCount)
+  let expectedData: ReadonlyArray<ReadonlyArray<unknown>> = dataRange
+    ? TABLE_DATA.slice(
+        dataRange.startIndex,
+        dataRange.startIndex + dataRange.elementCount,
+      )
     : TABLE_DATA;
+  if (dataRange?.deletionTime) {
+    expectedData = expectedData.map((row) => [row[0], null]);
+  }
   return performSQLIncrementalLoadWithNativeCTTestWithCustomData(
     TABLE_ID,
     TABLE_MD,
@@ -322,6 +329,7 @@ export const performSQLIncrementalLoadWithNativeCTTest = (
     dataRange?.previousChangeTrackingVersion,
     seenChangeTracking,
     changeTrackingStorage,
+    dataRange?.deletionTime,
   );
 };
 
@@ -332,6 +340,7 @@ export const performSQLIncrementalLoadWithNativeCTTestWithCustomData = (
   existingChangeTracking: string | undefined,
   seenChangeTracking: string | undefined,
   changeTrackingStorage: common.ObjectStorageFunctionality<string>,
+  deletionTime?: Date,
   dontAutoEnableChangeTracking = false,
 ) => {
   const hasExistingCT = existingChangeTracking !== undefined;
@@ -383,7 +392,7 @@ export const performSQLIncrementalLoadWithNativeCTTestWithCustomData = (
           ...data!, // eslint-disable-line @typescript-eslint/no-non-null-assertion
           context.tableProcessingStartTime, // Processing time
           recordedDatum[recordedDatum.length - 2], // Last changed time - from DB
-          null, // Deleted time
+          deletionTime ? deletionTime : null, // Deleted time
         ];
       }),
     (pipelineInput, tableProcessingStartTime, recordedEvents) => {
@@ -628,6 +637,7 @@ export interface IncrementalLoadInfo<TChangeTrackingDatum> {
   startIndex: number;
   elementCount: number;
   previousChangeTrackingVersion: TChangeTrackingDatum;
+  deletionTime?: Date;
 }
 
 const getPipelineDurationInMs = <
@@ -659,3 +669,19 @@ export function createInMemoryStorage<TValue>(
     },
   };
 }
+
+export const performDeletionInDB = async (
+  t: ExecutionContext<SQLServerTestContext>,
+) => {
+  const connection = await new mssql.ConnectionPool(
+    getSQLConfigFromContext(t.context.sqlServerInfo),
+  ).connect();
+  try {
+    await connection.query(
+      `DELETE FROM ${mssqlSource.getFullTableName(TABLE_ID)}
+  WHERE ${TABLE_MD.columnNames[0]} = ${TABLE_DATA[0][0]}`,
+    );
+  } finally {
+    await connection.close();
+  }
+};
