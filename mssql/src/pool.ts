@@ -12,6 +12,7 @@ export function getMSSQLPool(config: mssql.config): types.MSSQLConnectionPool {
     pool: new mssql.ConnectionPool({
       ...config,
       options: {
+        ...config.options,
         encrypt: true,
         enableArithAbort: true, // Good to specify, and also to avoid warning: tedious deprecated The default value for `config.options.enableArithAbort` will change from `false` to `true` in the next major version of `tedious`. Set the value to `true` or `false` explicitly to silence this message. node_modules/mssql/lib/tedious/connection-pool.js:61:23
       },

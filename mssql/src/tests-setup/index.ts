@@ -100,7 +100,7 @@ test.before("Start SQL Server Container", async (t) => {
           e instanceof mssql.ConnectionError ||
           !(e instanceof mssql.MSSQLError) // When e.g. Socket error
         ) {
-          console.log("SQL Server still in recovery state..."); // eslint-disable-line no-console
+          console.log("SQL Server still in recovery state...", e); // eslint-disable-line no-console
           await common.sleep(1000);
         } else {
           throw e;

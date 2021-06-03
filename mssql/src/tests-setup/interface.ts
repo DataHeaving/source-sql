@@ -66,6 +66,7 @@ export function getSQLConfigFromContext(
     options: {
       encrypt: true,
       enableArithAbort: true,
+      trustServerCertificate: true,
     },
   };
 }
@@ -666,7 +667,7 @@ export function createInMemoryStorage<TValue>(
     storageID: storageID || "in-memory",
     readExistingData: () =>
       Promise.resolve(value === undefined ? undefined : JSON.stringify(value)),
-    writeNewDataWhenDifferent: (newValue) => {
+    writeNewData: (newValue) => {
       value = newValue;
       return Promise.resolve();
     },

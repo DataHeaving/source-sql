@@ -244,7 +244,7 @@ export function rowsInTable(
               ctInfo?.previousChangeTrackingVersion,
             )
           ) {
-            await ctInfo.ctStorage.writeNewDataWhenDifferent(maxChangedAt);
+            await ctInfo.ctStorage.writeNewData(maxChangedAt);
             eventEmitter.emit("changeTrackingVersionUploaded", {
               ...eventArg,
               changeTrackingVersion: maxChangedAt,
@@ -387,7 +387,7 @@ export function rowsInTable(
               ctInfo?.previousChangeTrackingVersion,
             )
           ) {
-            await ctInfo.ctStorage.writeNewDataWhenDifferent(seenCTVersion);
+            await ctInfo.ctStorage.writeNewData(seenCTVersion);
             eventEmitter?.emit("changeTrackingVersionUploaded", {
               ...eventArg,
               changeTrackingVersion: seenCTVersion,
