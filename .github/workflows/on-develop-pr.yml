@@ -46,5 +46,3 @@ jobs:
           npm ci
           npm run build
           npm run test
-          ls -al dist/cjs
-          ls -al dist/esm
