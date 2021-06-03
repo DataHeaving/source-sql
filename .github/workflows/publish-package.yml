@@ -1,14 +1,15 @@
 name: CD Pipeline
 
 on:
-  workflow_dispatch:
-    inputs:
-      package:
-        description: "Package name"
-        required: true
+  push:
+    branches:
+    - main
 
 jobs:
   publish:
+    strategy:
+      matrix:
+        dir: [ api, mssql ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -16,7 +17,7 @@ jobs:
         with:
           node-version: 14
       - id: publish
-        name: Publish ${{ github.event.inputs.package }}
+        name: Publish ${{ matrix.dir }}
         shell: bash
         run: |
           set -e
@@ -27,19 +28,25 @@ jobs:
             exit 1
           fi
 
-          cd ${{ github.event.inputs.package }}
-          npm ci
+          cd ${{ matrix.dir }}
           PACKAGE_VERSION="$(cat package.json | jq -rM .version)"
+          GIT_TAG_NAME="${{ matrix.dir }}-v${PACKAGE_VERSION}"
+          if [[ -n "$(git ls-remote --tags origin "${GIT_TAG_NAME}")" ]]; then
+            # Tag already exists, meaning release has been done, so don't do anything here anymore
+            echo "Detected that tag ${GIT_TAG_NAME} already is created, not proceeding"
+            exit 0
+          fi
+
+          npm ci
           npm install --no-save @jsdevtools/npm-publish
           ./node_modules/.bin/npm-publish --access public --token '${{ secrets.NPM_TOKEN }}'
 
           # TODO we must generate release notes for the package
           # TODO set up organization-wide CICD-GitHub account
-          GIT_TAG_NAME="${{ github.event.inputs.package }}-v${PACKAGE_VERSION}"
           git config --global user.email "cd-automation@dataheaving.project"
           git config --global user.name "CD Automation"
           git tag \
             -a \
-            -m "Component ${{ github.event.inputs.package }} release ${PACKAGE_VERSION}" \
+            -m "Component ${{ matrix.dir }} release ${PACKAGE_VERSION}" \
             "${GIT_TAG_NAME}"
           git push origin "${GIT_TAG_NAME}"
