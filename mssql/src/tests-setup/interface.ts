@@ -406,7 +406,10 @@ export const performSQLIncrementalLoadWithNativeCTTestWithCustomData = (
         ? `USE [${
             tableID.databaseName
           }]; SELECT ct.SYS_CHANGE_VERSION, ct.SYS_CHANGE_OPERATION, tc.COMMIT_TIME, ${tableMD.columnNames
-            .map((c) => `t.[${c}]`)
+            .map(
+              (c, i) =>
+                `${i < tableMD.primaryKeyColumnCount ? "ct" : "t"}.[${c}]`,
+            )
             .join(", ")}
 FROM CHANGETABLE(CHANGES ${mssqlSource.getDatabaseSpecificFullTableName(
             tableID,

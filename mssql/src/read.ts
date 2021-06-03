@@ -303,7 +303,10 @@ export const readTableWithChangeTracking = async ({
     sqlCommand: `USE [${
       tableID.databaseName
     }]; SELECT ct.SYS_CHANGE_VERSION, ct.SYS_CHANGE_OPERATION, tc.COMMIT_TIME, ${columnNames
-      .map((colName) => `t.[${colName}]`)
+      .map(
+        (colName, columnIndex) =>
+          `${columnIndex < pkCount ? "ct" : "t"}.[${colName}]`,
+      ) // IMPORTANT! Use "ct" as table prefix instead of "t" for PK columns. If we use "t", PK columns will be NULL for deleted rows. For other columns, use "t" since "ct" won't typically have them.
       .join(", ")}
 FROM CHANGETABLE(CHANGES [${tableID.schemaName}].[${
       tableID.tableName
@@ -321,8 +324,8 @@ FROM CHANGETABLE(CHANGES [${tableID.schemaName}].[${
       let rowStatus: api.RowStatus = undefined;
       switch (row[1]) {
         case "D":
-          // Deletion: clear all other except last one (deletion time)
-          outputArray.fill(null, extraColCount + pkCount);
+          // Deletion: clear all other except PK. The caller will set the deletion time
+          outputArray.fill(null, pkCount);
           rowStatus = "deleted";
           break;
         case "I":
