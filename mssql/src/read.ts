@@ -52,35 +52,35 @@ export const getTableColumnMetaData = async (
         const allColumns = await sql.streamQueryResults({
           connection,
           sqlCommand: `SELECT
-    s.name,
-    t.name,
-    c.name,
-    CASE WHEN ic.index_column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
-    CASE WHEN ct.object_id IS NOT NULL THEN 1 ELSE 0 END AS is_tracked_by_ct,
-    tt.name,
-		CASE WHEN tt.name in ('nchar','nvarchar') AND c.max_length > 0 THEN c.max_length / 2 ELSE c.max_length END AS max_length,
-		c.precision,
-    c.scale,
-    c.is_nullable
-  FROM [${databaseName}].sys.columns c
-    JOIN [${databaseName}].sys.tables t ON c.object_id = t.object_id
-    JOIN [${databaseName}].sys.types tt ON c.system_type_id = tt.system_type_id AND c.user_type_id = tt.user_type_id
-    JOIN [${databaseName}].sys.schemas s ON t.schema_id = s.schema_id
-    LEFT JOIN [${databaseName}].sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
-    LEFT JOIN [${databaseName}].sys.index_columns ic ON ic.object_id = t.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id
-    LEFT JOIN [${databaseName}].sys.change_tracking_tables ct ON t.object_id = ct.object_id
-  WHERE
-    ${dbTableArray
-      .map(({ tableName }) => {
-        let conditionFragment = `s.name = @param_${curIdx}`;
-        ++curIdx;
-        if (tableName) {
-          conditionFragment = `${conditionFragment} AND t.name = @param_${curIdx}`;
-          ++curIdx;
-        }
-        return `(${conditionFragment})`;
-      })
-      .join(" OR\n")}`,
+  s.name,
+  t.name,
+  c.name,
+  CASE WHEN ic.index_column_id IS NOT NULL THEN 1 ELSE 0 END AS is_primary_key,
+  CASE WHEN ct.object_id IS NOT NULL THEN 1 ELSE 0 END AS is_tracked_by_ct,
+  tt.name,
+  CASE WHEN tt.name in ('nchar','nvarchar') AND c.max_length > 0 THEN c.max_length / 2 ELSE c.max_length END AS max_length,
+  c.precision,
+  c.scale,
+  c.is_nullable
+FROM [${databaseName}].sys.columns c
+  JOIN [${databaseName}].sys.tables t ON c.object_id = t.object_id
+  JOIN [${databaseName}].sys.types tt ON c.system_type_id = tt.system_type_id AND c.user_type_id = tt.user_type_id
+  JOIN [${databaseName}].sys.schemas s ON t.schema_id = s.schema_id
+  LEFT JOIN [${databaseName}].sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
+  LEFT JOIN [${databaseName}].sys.index_columns ic ON ic.object_id = t.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id
+  LEFT JOIN [${databaseName}].sys.change_tracking_tables ct ON t.object_id = ct.object_id
+WHERE
+${dbTableArray
+  .map(({ tableName }) => {
+    let conditionFragment = `s.name = @param_${curIdx}`;
+    ++curIdx;
+    if (tableName) {
+      conditionFragment = `${conditionFragment} AND t.name = @param_${curIdx}`;
+      ++curIdx;
+    }
+    return `  (${conditionFragment})`;
+  })
+  .join(" OR\n")}`,
           onRow: (rowColumns) => {
             return {
               schemaName: validation.decodeOrThrow(

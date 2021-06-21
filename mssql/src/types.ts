@@ -76,7 +76,6 @@ export const mainConfig = t.intersection(
     // Mandatory top-level properties
     t.type(
       {
-        connection: connectionConfig,
         data: t.refinement(
           t.partial({
             schemas: t.array(

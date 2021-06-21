@@ -202,10 +202,13 @@ const prepareDatabase = async (serverInfo: abi.SQLServerInfo) => {
 };
 
 const getTypeModifiers = (typeInfo: commonSql.ColumnTypeInfo) => {
-  switch (typeInfo.typeName) {
+  switch (typeInfo.typeName.toUpperCase()) {
     case "VARCHAR":
     case "NVARCHAR":
       return `(${typeInfo.maxLength > 0 ? typeInfo.maxLength : "MAX"})`;
+    case "INT":
+    case "BIGINT":
+      return "";
     default:
       return typeInfo.precision > 0
         ? typeInfo.scale > 0

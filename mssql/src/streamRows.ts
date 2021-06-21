@@ -7,7 +7,7 @@ import * as read from "./read";
 import { isDeepStrictEqual } from "util";
 import * as t from "io-ts";
 
-type TableReadConfig = Omit<types.MainConfig, "connection">;
+type TableReadConfig = types.MainConfig;
 
 export interface TableInput {
   tableID: types.TableID;
