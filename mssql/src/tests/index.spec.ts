@@ -157,6 +157,7 @@ WHERE
       eventArg: sql,
     },
   ]);
+
   t.truthy(seenContext);
   t.deepEqual(dataSink, expectedContext);
 });
