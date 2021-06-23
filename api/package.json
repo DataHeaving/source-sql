@@ -17,7 +17,7 @@
     "prepublishOnly": "rm -rf dist && npm run build && npm run test && npm run remove-test-files",
     "lint": "eslint ./src --ext .ts,.tsx",
     "watch": "tsc -w",
-    "test": "echo TODO TESTS",
+    "test": "nyc ava",
     "remove-test-files": "rm -rf dist/*/tests src/*/tests"
   },
   "dependencies": {
@@ -28,9 +28,11 @@
     "@types/node": "14.14.31",
     "@typescript-eslint/eslint-plugin": "4.22.0",
     "@typescript-eslint/parser": "4.22.0",
+    "ava": "4.0.0-alpha.2",
     "eslint": "7.25.0",
     "eslint-config-prettier": "8.3.0",
     "eslint-plugin-prettier": "3.4.0",
+    "nyc": "15.1.0",
     "prettier": "2.2.1",
     "typescript": "4.2.4"
   },
@@ -40,5 +42,13 @@
   ],
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
-  "types": "./dist/cjs/index.d.ts"
+  "types": "./dist/cjs/index.d.ts",
+  "ava": {
+    "files": [
+      "dist/cjs/**/tests/*.js"
+    ],
+    "concurrency": 1,
+    "timeout": "10m",
+    "verbose": true
+  }
 }
