@@ -96,12 +96,16 @@ export const consoleLoggingMetaDataEventEmitterBuilder = <TTableID>(
   getTableIDString: (tableID: TTableID) => string,
   logMessagePrefix?: Parameters<typeof utils.createConsoleLogger>[0],
   builder?: utils.EventEmitterBuilder<VirtualMetaDataTableEvents<TTableID>>,
+  consoleAbstraction?: utils.ConsoleAbstraction,
 ) => {
   if (!builder) {
     builder = createMetaDataEventEmitterBuilder();
   }
 
-  const logger = utils.createConsoleLogger(logMessagePrefix);
+  const logger = utils.createConsoleLogger(
+    logMessagePrefix,
+    consoleAbstraction,
+  );
 
   builder.addEventListener("tablesDiscovered", (arg) =>
     logger(
@@ -121,12 +125,16 @@ export const consoleLoggingTableExportEventEmitterBuilder = <
   builder?: utils.EventEmitterBuilder<
     VirtualTableExportEvents<TContext, TTableID>
   >,
+  consoleAbstraction?: utils.ConsoleAbstraction,
 ) => {
   if (!builder) {
     builder = createTableExportEventEmitterBuilder();
   }
 
-  const logger = utils.createConsoleLogger(logMessagePrefix);
+  const logger = utils.createConsoleLogger(
+    logMessagePrefix,
+    consoleAbstraction,
+  );
 
   builder.addEventListener("tableExportStart", (arg) =>
     logger(`Starting export for ${getTableIDString(arg.tableID)}`),
@@ -165,12 +173,23 @@ export const consoleLoggingTableExportWithChangeTrackingEventEmitterBuilder = <
     >
   >,
   printInvalidRowContents?: boolean,
+  consoleAbstraction?: utils.ConsoleAbstraction,
 ) => {
   if (!builder) {
     builder = createTableExportWithChangeTrackingEventEmitterBuilder();
   }
 
-  const logger = utils.createConsoleLogger(logMessagePrefix);
+  consoleLoggingTableExportEventEmitterBuilder(
+    getTableIDString,
+    logMessagePrefix,
+    builder,
+    consoleAbstraction,
+  );
+
+  const logger = utils.createConsoleLogger(
+    logMessagePrefix,
+    consoleAbstraction,
+  );
 
   builder.addEventListener("tableChangeTrackVersionSeen", (arg) =>
     logger(

@@ -285,10 +285,15 @@ export function rowsInTable(
             intermediateRowEventInterval,
           } = getBehaviourInfo(context);
 
-          const ctInfo = await api.prepareChangeTracking({
-            validation: validation.nonEmptyString,
-            storage: changeTrackingStorage,
-          });
+          const ctValidation = validation.nonEmptyString;
+          const ctInfo = {
+            ctStorage: changeTrackingStorage,
+            validation: ctValidation,
+            previousChangeTrackingVersion: await validation.retrieveValidatedDataFromStorage(
+              changeTrackingStorage.readExistingData,
+              ctValidation.decode,
+            ),
+          };
 
           const changeTrackingVersion = await read.checkChangeTrackingValidity({
             connection,
@@ -381,7 +386,7 @@ export function rowsInTable(
         async (_, { ctInfo, seenCTVersion, eventArg }) => {
           // After successful run, and after connection has been closed, remember to upload change tracking information
           if (
-            ctInfo.changeTrackingFunctionality.validation.is(seenCTVersion) &&
+            ctInfo.validation.is(seenCTVersion) &&
             !isDeepStrictEqual(
               seenCTVersion,
               ctInfo?.previousChangeTrackingVersion,

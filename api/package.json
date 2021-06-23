@@ -17,7 +17,7 @@
     "prepublishOnly": "rm -rf dist && npm run build && npm run test && npm run remove-test-files",
     "lint": "eslint ./src --ext .ts,.tsx",
     "watch": "tsc -w",
-    "test": "echo TODO TESTS",
+    "test": "nyc ava",
     "remove-test-files": "rm -rf dist/*/tests src/*/tests"
   },
   "dependencies": {

@@ -3,6 +3,28 @@ import * as validation from "@data-heaving/common-validation";
 import * as sql from "@data-heaving/common-sql";
 import * as t from "io-ts";
 
+export type StreamSQLRows<
+  TConnection,
+  TTableID,
+  TChangeTrackingDatum,
+  TAdditionalInfo,
+  TResult
+> = (opts: {
+  connection: TConnection;
+  tableID: TTableID;
+  tableMD: sql.TableMetaData;
+  changeTracking: TChangeTrackingDatum | undefined;
+  outputArray: Array<unknown>;
+  rowProcessor: (
+    rowStatus: RowStatus,
+    transactionTime: Date | undefined | null,
+    controlFlow: common.ControlFlow | undefined,
+  ) => unknown;
+  onQueryEnd: () => unknown;
+  additionalInfo: TAdditionalInfo;
+}) => Promise<TResult>;
+export type RowStatus = "deleted" | "invalid" | undefined;
+
 export function createRowIteratingPipelineFactory<
   TInput,
   TContext,
@@ -92,23 +114,23 @@ export function createRowIteratingPipelineFactory<
   };
 }
 
-export interface ChangeTrackingFunctionality<TChangeTrackingDatum> {
-  validation: t.Type<TChangeTrackingDatum>;
-  storage: common.ObjectStorageFunctionality<TChangeTrackingDatum>;
-}
+// export interface ChangeTrackingFunctionality<TChangeTrackingDatum> {
+//   validation: t.Type<TChangeTrackingDatum>;
+//   storage: common.ObjectStorageFunctionality<TChangeTrackingDatum>;
+// }
 
-export const prepareChangeTracking = async <TChangeTrackingDatum>(
-  changeTrackingFunctionality: ChangeTrackingFunctionality<TChangeTrackingDatum>,
-  // connection: TConnection,
-) => {
-  const ctStorage = changeTrackingFunctionality.storage;
-  const previousChangeTrackingVersion = await validation.retrieveValidatedDataFromStorage(
-    ctStorage.readExistingData,
-    changeTrackingFunctionality.validation.decode,
-  );
-  return {
-    changeTrackingFunctionality,
-    ctStorage,
-    previousChangeTrackingVersion,
-  };
-};
+// export const prepareChangeTracking = async <TChangeTrackingDatum>(
+//   changeTrackingFunctionality: ChangeTrackingFunctionality<TChangeTrackingDatum>,
+//   // connection: TConnection,
+// ) => {
+//   const ctStorage = changeTrackingFunctionality.storage;
+//   const previousChangeTrackingVersion = await validation.retrieveValidatedDataFromStorage(
+//     ctStorage.readExistingData,
+//     changeTrackingFunctionality.validation.decode,
+//   );
+//   return {
+//     changeTrackingFunctionality,
+//     ctStorage,
+//     previousChangeTrackingVersion,
+//   };
+// };
