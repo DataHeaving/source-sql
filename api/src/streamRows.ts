@@ -1,7 +1,5 @@
 import * as common from "@data-heaving/common";
-import * as validation from "@data-heaving/common-validation";
 import * as sql from "@data-heaving/common-sql";
-import * as t from "io-ts";
 
 export type StreamSQLRows<
   TConnection,
@@ -113,24 +111,3 @@ export function createRowIteratingPipelineFactory<
     };
   };
 }
-
-// export interface ChangeTrackingFunctionality<TChangeTrackingDatum> {
-//   validation: t.Type<TChangeTrackingDatum>;
-//   storage: common.ObjectStorageFunctionality<TChangeTrackingDatum>;
-// }
-
-// export const prepareChangeTracking = async <TChangeTrackingDatum>(
-//   changeTrackingFunctionality: ChangeTrackingFunctionality<TChangeTrackingDatum>,
-//   // connection: TConnection,
-// ) => {
-//   const ctStorage = changeTrackingFunctionality.storage;
-//   const previousChangeTrackingVersion = await validation.retrieveValidatedDataFromStorage(
-//     ctStorage.readExistingData,
-//     changeTrackingFunctionality.validation.decode,
-//   );
-//   return {
-//     changeTrackingFunctionality,
-//     ctStorage,
-//     previousChangeTrackingVersion,
-//   };
-// };

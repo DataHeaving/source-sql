@@ -13,7 +13,7 @@ test("The createRowIteratingPipelineFactory method works as intended", async (t)
     (input: string) => ({ input }),
     {
       pool: "Dummy",
-      getConnection: (pool, eventEmitter) =>
+      getConnection: () =>
         Promise.resolve([connection(sql, undefined), () => Promise.resolve()]),
     },
     spec
@@ -28,13 +28,13 @@ test("The createRowIteratingPipelineFactory method works as intended", async (t)
         },
       )
       .createEventEmitter(),
-    (ctx, connection, getCurrentStoring, endOrReset) => {
+    () => {
       return Promise.resolve();
     },
   );
-  const pipeline = pipelineFactory(() => (datumStoringFactory) => ({
+  const pipeline = pipelineFactory(() => () => ({
     storing: {
-      processor: (datum) => {},
+      processor: () => {},
       end: () => {},
     },
   }));

@@ -15,6 +15,7 @@ export interface SQLServerInfo {
 export const CONTEXT_KEY = "sqlServerInfo" as const;
 export interface SQLServerTestContext {
   [CONTEXT_KEY]: SQLServerInfo;
+  containerID: string;
 }
 
 export const TABLE_ID: mssqlSource.TableID = {
