@@ -102,7 +102,7 @@ export function createRowIteratingPipelineFactory<
       }
 
       if (errors.length > 0) {
-        throw new sql.MultipleErrors(errors);
+        throw new MultipleErrors(errors);
       }
 
       if (afterSuccessfulRun) {
@@ -110,4 +110,10 @@ export function createRowIteratingPipelineFactory<
       }
     };
   };
+}
+
+export class MultipleErrors extends Error {
+  public constructor(public readonly errors: ReadonlyArray<unknown>) {
+    super(`Multiple errors occurred: ${errors.join("\n")}`);
+  }
 }
