@@ -152,16 +152,32 @@ export function rowsInTable(
             intermediateRowEventInterval,
             prepareChangeTrackingForSerialization,
           } = getBehaviourInfo(context);
+          // Verify that column name doesn't contain forbidden characters etc.
           validation.decodeOrThrow(
             types.identifier.decode,
             changedAtColumnName,
-          ); // Verify that column name doesn't contain forbidden characters etc.
-          const ctInfo = await api.prepareChangeTracking<
-            t.TypeOf<typeof changeTrackingValidation>
-          >({
-            validation: changeTrackingValidation,
+          );
+          const ctInfo = {
             storage: changeTrackingStorage,
-          });
+            validation: changeTrackingValidation,
+            previousChangeTrackingVersion: await validation.retrieveValidatedDataFromStorage<
+              t.TypeOf<typeof changeTrackingValidation>
+            >(
+              changeTrackingStorage.readExistingData,
+              changeTrackingValidation.decode,
+            ),
+          } as const;
+          // return {
+          //   changeTrackingFunctionality,
+          //   ctStorage,
+          //   previousChangeTrackingVersion,
+          // };
+          // const ctInfo = await api.prepareChangeTracking<
+          //   t.TypeOf<typeof changeTrackingValidation>
+          // >({
+          //   validation: changeTrackingValidation,
+          //   storage: changeTrackingStorage,
+          // });
           const eventArg = {
             ...eventArgBase,
             changeTrackingVersion: undefined,
@@ -238,16 +254,16 @@ export function rowsInTable(
             maxChangedAt = prepareChangeTrackingForSerialization(maxChangedAt); // e.g. create ISO formatted timestamp from Date object.
           }
           if (
-            ctInfo.changeTrackingFunctionality.validation.is(maxChangedAt) &&
+            ctInfo.validation.is(maxChangedAt) &&
             !isDeepStrictEqual(
               maxChangedAt,
               ctInfo?.previousChangeTrackingVersion,
             )
           ) {
-            await ctInfo.ctStorage.writeNewData(maxChangedAt);
+            await ctInfo.storage.writeNewData(maxChangedAt);
             eventEmitter.emit("changeTrackingVersionUploaded", {
               ...eventArg,
-              changeTrackingVersion: maxChangedAt,
+              changeTrackingVersion: maxChangedAt, // eslint-disable-line @typescript-eslint/no-unsafe-assignment
             });
           }
         },
