@@ -15,6 +15,7 @@ export interface SQLServerInfo {
 export const CONTEXT_KEY = "sqlServerInfo" as const;
 export interface SQLServerTestContext {
   [CONTEXT_KEY]: SQLServerInfo;
+  containerID: string;
 }
 
 export const TABLE_ID: mssqlSource.TableID = {
@@ -26,16 +27,16 @@ export const TABLE_MD: sql.TableMetaData = {
   columnNames: ["ID", "DATA"],
   columnTypes: [
     {
-      typeName: "INT",
+      typeName: "int",
       isNullable: false,
-      maxLength: 0,
-      precision: 0,
+      maxLength: 4,
+      precision: 10,
       scale: 0,
     },
     {
-      typeName: "NVARCHAR",
+      typeName: "nvarchar",
       isNullable: true,
-      maxLength: 0,
+      maxLength: -1,
       precision: 0,
       scale: 0,
     },

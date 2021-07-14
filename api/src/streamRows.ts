@@ -1,7 +1,27 @@
 import * as common from "@data-heaving/common";
-import * as validation from "@data-heaving/common-validation";
 import * as sql from "@data-heaving/common-sql";
-import * as t from "io-ts";
+
+export type StreamSQLRows<
+  TConnection,
+  TTableID,
+  TChangeTrackingDatum,
+  TAdditionalInfo,
+  TResult
+> = (opts: {
+  connection: TConnection;
+  tableID: TTableID;
+  tableMD: sql.TableMetaData;
+  changeTracking: TChangeTrackingDatum | undefined;
+  outputArray: Array<unknown>;
+  rowProcessor: (
+    rowStatus: RowStatus,
+    transactionTime: Date | undefined | null,
+    controlFlow: common.ControlFlow | undefined,
+  ) => unknown;
+  onQueryEnd: () => unknown;
+  additionalInfo: TAdditionalInfo;
+}) => Promise<TResult>;
+export type RowStatus = "deleted" | "invalid" | undefined;
 
 export function createRowIteratingPipelineFactory<
   TInput,
@@ -82,7 +102,7 @@ export function createRowIteratingPipelineFactory<
       }
 
       if (errors.length > 0) {
-        throw new sql.MultipleErrors(errors);
+        throw new MultipleErrors(errors);
       }
 
       if (afterSuccessfulRun) {
@@ -92,23 +112,8 @@ export function createRowIteratingPipelineFactory<
   };
 }
 
-export interface ChangeTrackingFunctionality<TChangeTrackingDatum> {
-  validation: t.Type<TChangeTrackingDatum>;
-  storage: common.ObjectStorageFunctionality<TChangeTrackingDatum>;
+export class MultipleErrors extends Error {
+  public constructor(public readonly errors: ReadonlyArray<unknown>) {
+    super(`Multiple errors occurred: ${errors.join("\n")}`);
+  }
 }
-
-export const prepareChangeTracking = async <TChangeTrackingDatum>(
-  changeTrackingFunctionality: ChangeTrackingFunctionality<TChangeTrackingDatum>,
-  // connection: TConnection,
-) => {
-  const ctStorage = changeTrackingFunctionality.storage;
-  const previousChangeTrackingVersion = await validation.retrieveValidatedDataFromStorage(
-    ctStorage.readExistingData,
-    changeTrackingFunctionality.validation.decode,
-  );
-  return {
-    changeTrackingFunctionality,
-    ctStorage,
-    previousChangeTrackingVersion,
-  };
-};
